@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import '../models/download_item.dart';
 import '../providers/download_provider.dart';
 import '../providers/settings_provider.dart';
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
+  StreamSubscription? _intentSub;
 
   @override
   void initState() {
@@ -48,7 +51,60 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _selectedQuality = settings.defaultQuality;
       });
+
+      // Handle URL shared while app was already open (stream)
+      _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen(
+        (items) => _handleSharedMedia(items),
+        onError: (_) {},
+      );
+
+      // Handle URL that launched the app cold (one-shot)
+      ReceiveSharingIntent.instance.getInitialMedia().then((items) {
+        if (items.isNotEmpty) {
+          _handleSharedMedia(items);
+          ReceiveSharingIntent.instance.reset();
+        }
+      });
     });
+  }
+
+  /// Processes a list of shared items — we only care about text URLs.
+  void _handleSharedMedia(List<SharedMediaFile> items) {
+    for (final item in items) {
+      final text = item.path.trim();
+      if (isValidUrl(text)) {
+        _autoDownload(text);
+        return; // one at a time
+      }
+    }
+  }
+
+  /// Silently starts a download for [url] without filling the text field,
+  /// switches to the Downloads tab, and shows a snackbar.
+  void _autoDownload(String url) {
+    final quality = context.read<SettingsProvider>().defaultQuality;
+    context.read<DownloadProvider>().addDownload(url, quality);
+    setState(() => _currentTab = 1);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.download_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Downloading: ${detectPlatform(url).displayName}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.primary,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   void _onUrlChanged() {
@@ -63,6 +119,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    _intentSub?.cancel();
     _urlController.dispose();
     _focusNode.dispose();
     _pulseController.dispose();

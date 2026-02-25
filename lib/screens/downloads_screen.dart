@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/download_item.dart';
 import '../providers/download_provider.dart';
 import '../theme/app_theme.dart';
@@ -349,6 +350,31 @@ class _DownloadCard extends StatelessWidget {
       );
     }
 
+    // Completed with a file: show share button + overflow menu
+    if (item.status == DownloadStatus.completed && item.filePath != null) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.share_rounded, color: AppTheme.primary, size: 20),
+            onPressed: () => _shareFile(item.filePath!),
+            tooltip: 'Share',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+          _buildOverflowMenu(context, provider),
+        ],
+      );
+    }
+
+    return _buildOverflowMenu(context, provider);
+  }
+
+  Future<void> _shareFile(String filePath) async {
+    await Share.shareXFiles([XFile(filePath)]);
+  }
+
+  Widget _buildOverflowMenu(BuildContext context, DownloadProvider provider) {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded, color: Colors.white38, size: 20),
       color: AppTheme.surfaceVariant,

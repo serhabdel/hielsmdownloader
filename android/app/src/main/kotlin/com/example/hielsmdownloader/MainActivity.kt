@@ -1,5 +1,0 @@
-package com.example.hielsmdownloader
-
-import io.flutter.embedding.android.FlutterActivity
-
-class MainActivity : FlutterActivity()

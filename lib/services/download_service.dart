@@ -1,10 +1,25 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:direct_link/direct_link.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 import '../models/download_item.dart';
+
+// ─── MediaStore Scanner ───────────────────────────────────────────────────────
+
+/// Notifies Android's MediaStore about a newly written file so it appears in
+/// the Gallery / Files app immediately. Works on API 21–37+.
+Future<void> scanFileToGallery(String filePath) async {
+  if (!Platform.isAndroid) return;
+  try {
+    const channel = MethodChannel('com.hieltech.smdownloader/media_scanner');
+    await channel.invokeMethod<String>('scanFile', {'path': filePath});
+  } catch (_) {
+    // Non-fatal — file already exists on disk even if Gallery misses it.
+  }
+}
 
 /// Detects which platform a URL belongs to
 SupportedPlatform detectPlatform(String url) {
@@ -190,7 +205,7 @@ class DownloadService {
     );
   }
 
-  static Future<void> downloadYoutube({
+  static Future<String> downloadYoutube({
     required String url,
     required VideoQuality quality,
     required String savePath,
@@ -251,6 +266,11 @@ class DownloadService {
 
     await sink.flush();
     await sink.close();
+
+    // Notify Android MediaStore so the file appears in Gallery
+    await scanFileToGallery(filePath);
+
+    return filePath;
   }
 
   // ─── Generic HTTP download (Instagram, TikTok via yt-dlp API, etc.) ────────
@@ -304,7 +324,7 @@ class DownloadService {
     }
   }
 
-  static Future<void> downloadViaHttp({
+  static Future<String> downloadViaHttp({
     required String directUrl,
     required String title,
     required String savePath,
@@ -335,6 +355,11 @@ class DownloadService {
         },
       ),
     );
+
+    // Notify Android MediaStore so the file appears in Gallery
+    await scanFileToGallery(filePath);
+
+    return filePath;
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────

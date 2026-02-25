@@ -43,9 +43,21 @@ dependencies:
   # UUID generation
   uuid: ^4.5.1
 
+  # Receive shared URLs from other apps (YouTube, Instagram, etc. → auto-download)
+  receive_sharing_intent: ^1.8.0
+
   # Direct link extractor (Instagram, TikTok, Twitter, Facebook, Reddit, etc.)
   # Uses flutter_inappwebview to bypass bot protection
   direct_link: ^0.3.2
+
+  # Share files to other apps (WhatsApp, Telegram, etc.)
+  share_plus: ^10.1.4
+
+  # Foreground service + progress notifications during background download
+  flutter_foreground_task: ^8.15.2
+
+  # Local notifications (progress bar style during download)
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:

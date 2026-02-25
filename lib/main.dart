@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/home_screen.dart';
+import 'services/foreground_service.dart';
+import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -30,6 +32,10 @@ void main() async {
   // Load settings
   final settings = SettingsProvider();
   await settings.load();
+
+  // Init background services
+  ForegroundService.init();
+  await NotificationService.init();
 
   runApp(
     MultiProvider(

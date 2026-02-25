@@ -17,6 +17,13 @@
     <!-- Notification permission (Android 13+) for download progress -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!-- Foreground service (keeps downloads alive in background) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+
+    <!-- Wake lock: prevent CPU from sleeping mid-download -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
     <!-- For managing downloads dir -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage"
@@ -58,6 +65,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- flutter_foreground_task: keeps downloads alive when app is backgrounded -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
     </application>
 
     <queries>

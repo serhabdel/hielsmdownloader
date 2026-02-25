@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.hielsmdownloader"
+    namespace = "com.hieltech.smdownloader"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.hielsmdownloader"
+        applicationId = "com.hieltech.smdownloader"
         minSdk = flutter.minSdkVersion
         targetSdk = 35
         versionCode = flutter.versionCode

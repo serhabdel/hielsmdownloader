@@ -65,6 +65,77 @@ class DownloadItem {
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'url': url,
+        'title': title,
+        'thumbnailUrl': thumbnailUrl,
+        'duration': duration,
+        'author': author,
+        'platform': platform.name,
+        'status': status.name,
+        'progress': progress,
+        'filePath': filePath,
+        'errorMessage': errorMessage,
+        'quality': quality.name,
+        'fileSizeBytes': fileSizeBytes,
+        'downloadedBytes': downloadedBytes,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory DownloadItem.fromJson(Map<String, dynamic> json) {
+    DownloadStatus parsedStatus;
+    try {
+      parsedStatus = DownloadStatus.values.byName(json['status'] as String);
+    } catch (_) {
+      parsedStatus = DownloadStatus.failed;
+    }
+    // Mark in-progress items as failed since they were interrupted
+    if (parsedStatus == DownloadStatus.downloading ||
+        parsedStatus == DownloadStatus.fetchingInfo ||
+        parsedStatus == DownloadStatus.queued) {
+      parsedStatus = DownloadStatus.failed;
+    }
+
+    SupportedPlatform parsedPlatform;
+    try {
+      parsedPlatform =
+          SupportedPlatform.values.byName(json['platform'] as String);
+    } catch (_) {
+      parsedPlatform = SupportedPlatform.generic;
+    }
+
+    VideoQuality parsedQuality;
+    try {
+      parsedQuality = VideoQuality.values.byName(json['quality'] as String);
+    } catch (_) {
+      parsedQuality = VideoQuality.best;
+    }
+
+    return DownloadItem(
+      id: json['id'] as String,
+      url: json['url'] as String,
+      title: json['title'] as String? ?? 'Unknown',
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+      duration: json['duration'] as String?,
+      author: json['author'] as String?,
+      platform: parsedPlatform,
+      status: parsedStatus,
+      progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
+      filePath: json['filePath'] as String?,
+      errorMessage: parsedStatus == DownloadStatus.failed &&
+              (json['errorMessage'] as String?) == null
+          ? 'Interrupted — please retry'
+          : json['errorMessage'] as String?,
+      quality: parsedQuality,
+      fileSizeBytes: json['fileSizeBytes'] as int?,
+      downloadedBytes: json['downloadedBytes'] as int?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+
   DownloadItem copyWith({
     String? title,
     String? thumbnailUrl,
