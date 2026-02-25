@@ -1,0 +1,58 @@
+name: hielsmdownloader
+description: "A modern social media video downloader - no ads, clean UX."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.8
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # YouTube downloading (no API key needed)
+  youtube_explode_dart: ^3.0.5
+
+  # HTTP client for downloading other platforms
+  dio: ^5.9.1
+
+  # File path utilities
+  path_provider: ^2.1.5
+
+  # Runtime permissions
+  permission_handler: ^12.0.1
+
+  # State management
+  provider: ^6.1.5+1
+
+  # Share / open files
+  open_filex: ^4.6.0
+
+  # Shared preferences for settings
+  shared_preferences: ^2.5.3
+
+  # URL launcher (open videos in browser as fallback)
+  url_launcher: ^6.3.1
+
+  # Format file sizes & durations nicely
+  intl: ^0.20.2
+
+  # UUID generation
+  uuid: ^4.5.1
+
+  # Direct link extractor (Instagram, TikTok, Twitter, Facebook, Reddit, etc.)
+  # Uses flutter_inappwebview to bypass bot protection
+  direct_link: ^0.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
