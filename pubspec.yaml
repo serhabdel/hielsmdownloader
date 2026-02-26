@@ -2,7 +2,7 @@ name: hielsmdownloader
 description: "A modern social media video downloader - no ads, clean UX."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.10.8
