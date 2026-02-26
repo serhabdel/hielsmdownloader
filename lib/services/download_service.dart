@@ -103,7 +103,7 @@ class DownloadService {
   static final _yt = yt.YoutubeExplode();
   static final _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 30),
-    receiveTimeout: const Duration(minutes: 10),
+    receiveTimeout: const Duration(minutes: 30),
     headers: {
       'User-Agent':
           'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 '
@@ -153,11 +153,12 @@ class DownloadService {
   }
 
   static String _sanitizeFilename(String name) {
-    return name
+    final sanitized = name
         .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
         .replaceAll(RegExp(r'\s+'), ' ')
-        .trim()
-        .substring(0, name.length.clamp(0, 100));
+        .trim();
+    // Clamp using the sanitized string's own length, not the original
+    return sanitized.substring(0, sanitized.length.clamp(0, 100));
   }
 
   // ─── YouTube ────────────────────────────────────────────────────────────────
@@ -330,9 +331,14 @@ class DownloadService {
     required String savePath,
     required void Function(double progress, int received, int total) onProgress,
     CancelToken? cancelToken,
+    bool audioOnly = false,
   }) async {
+    // For social platforms we get a raw video stream — we save as-is.
+    // Audio-only mode saves the same stream but as .mp3 (best-effort;
+    // most platforms serve AAC/MP4 audio streams for reels/shorts).
+    final ext = audioOnly ? 'mp3' : 'mp4';
     final fileName =
-        '${_sanitizeFilename(title)}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+        '${_sanitizeFilename(title)}_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final filePath = '$savePath/$fileName';
 
     await _dio.download(
@@ -347,6 +353,7 @@ class DownloadService {
         }
       },
       options: Options(
+        receiveTimeout: const Duration(minutes: 30),
         headers: {
           'Referer': directUrl,
           'User-Agent':

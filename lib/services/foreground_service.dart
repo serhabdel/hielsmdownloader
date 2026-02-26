@@ -40,16 +40,23 @@ class ForegroundService {
   static Future<void> start({String text = 'Downloading...'}) async {
     if (!Platform.isAndroid) return;
 
-    if (await FlutterForegroundTask.isRunningService) return;
-
     // Ask Android to not kill us for battery optimisation
     if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
     }
 
+    if (await FlutterForegroundTask.isRunningService) {
+      // Already running — just update the text
+      await FlutterForegroundTask.updateService(
+        notificationTitle: 'HieL SmD',
+        notificationText: text,
+      );
+      return;
+    }
+
     await FlutterForegroundTask.startService(
       serviceId: 1001,
-      notificationTitle: 'Reels Downloader',
+      notificationTitle: 'HieL SmD',
       notificationText: text,
       callback: _foregroundCallback,
     );
@@ -69,7 +76,7 @@ class ForegroundService {
     if (!Platform.isAndroid) return;
     if (!await FlutterForegroundTask.isRunningService) return;
     await FlutterForegroundTask.updateService(
-      notificationTitle: 'Reels Downloader',
+      notificationTitle: 'HieL SmD',
       notificationText: text,
     );
   }
@@ -91,7 +98,7 @@ class _DownloadTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    // Heartbeat — just keeps the service alive.
+    // Heartbeat — keeps the service alive.
   }
 
   @override

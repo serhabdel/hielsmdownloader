@@ -215,13 +215,15 @@ class DownloadProvider extends ChangeNotifier {
           downloadedBytes: received,
           fileSizeBytes: total > 0 ? total : null,
         ));
+        final pct = (progress * 100).toInt();
         NotificationService.showProgress(
           downloadId: item.id,
           title: current.title,
-          progress: (progress * 100).toInt(),
+          progress: pct,
           receivedBytes: received,
           totalBytes: total,
         );
+        ForegroundService.update('${current.title} — $pct%');
       },
     );
 
@@ -267,6 +269,7 @@ class DownloadProvider extends ChangeNotifier {
       directUrl: info.directUrl,
       title: info.title.isNotEmpty ? info.title : item.platform.displayName,
       savePath: savePath,
+      audioOnly: item.quality == VideoQuality.audioOnly,
       cancelToken: cancelToken,
       onProgress: (progress, received, total) {
         final current = _getItem(item.id);
@@ -276,13 +279,15 @@ class DownloadProvider extends ChangeNotifier {
           downloadedBytes: received,
           fileSizeBytes: total > 0 ? total : null,
         ));
+        final pct = (progress * 100).toInt();
         NotificationService.showProgress(
           downloadId: item.id,
           title: current.title,
-          progress: (progress * 100).toInt(),
+          progress: pct,
           receivedBytes: received,
           totalBytes: total,
         );
+        ForegroundService.update('${current.title} — $pct%');
       },
     );
 

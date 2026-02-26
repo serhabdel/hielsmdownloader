@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'providers/download_provider.dart';
@@ -102,11 +103,15 @@ class _ReelsDownloaderAppState extends State<ReelsDownloaderApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'HieL SmD',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      home: const HomeScreen(),
+    // WithForegroundTask binds the Flutter engine to the foreground service
+    // lifecycle, preventing Android from killing the isolate mid-download.
+    return WithForegroundTask(
+      child: MaterialApp(
+        title: 'HieL SmD',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.darkTheme,
+        home: const HomeScreen(),
+      ),
     );
   }
 }
