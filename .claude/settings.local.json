@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:/Users/Abdelhalim/source/flutter/hielsmdownloader\" && flutter build apk --release 2>&1)"
+    ]
+  }
+}
