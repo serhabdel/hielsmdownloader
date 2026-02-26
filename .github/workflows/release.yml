@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/HieLSmD-${VERSION}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "HieL SmD ${{ github.ref_name }}"
+          body: |
+            ## HieL SmD ${{ github.ref_name }}
+
+            ### Install
+            Download and install **HieLSmD-${{ github.ref_name }}.apk** on your Android device.
+            You may need to allow installation from unknown sources.
+
+            ### Changes
+            See [commits](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for what changed in this release.
+          files: build/app/outputs/flutter-apk/HieLSmD-${{ github.ref_name }}.apk
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -58,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen>
         onError: (_) {},
       );
 
-      // Handle URL that launched the app cold (one-shot)
+      // Handle URL that launched the app cold (one-shot).
       ReceiveSharingIntent.instance.getInitialMedia().then((items) {
         if (items.isNotEmpty) {
           _handleSharedMedia(items);
@@ -68,12 +68,33 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  /// Processes a list of shared items — we only care about text URLs.
+  /// Extracts the first http/https URL from [text], which may be a bare URL
+  /// or a human-readable string like "Check this out https://instagram.com/reel/…".
+  String? _extractUrl(String text) {
+    // First try the whole trimmed string
+    final trimmed = text.trim();
+    if (isValidUrl(trimmed)) return trimmed;
+    // Fall back: find first http(s) URL in the string
+    final urlRegex = RegExp(
+      r'https?://[^\s\u200B-\u200D\uFEFF]+',
+      caseSensitive: false,
+    );
+    final match = urlRegex.firstMatch(text);
+    if (match != null) {
+      final candidate = match.group(0)!.replaceAll(RegExp(r'[.,;!?)]+$'), '');
+      if (isValidUrl(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  /// Processes a list of shared items — we only care about text/URL types.
   void _handleSharedMedia(List<SharedMediaFile> items) {
     for (final item in items) {
+      // receive_sharing_intent puts the shared text in item.path for text/url types
       final text = item.path.trim();
-      if (isValidUrl(text)) {
-        _autoDownload(text);
+      final url = _extractUrl(text);
+      if (url != null) {
+        _autoDownload(url);
         return; // one at a time
       }
     }
@@ -298,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Reels Downloader',
+                  'HieL SmD',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
@@ -606,7 +627,7 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
           const SizedBox(height: 10),
-          _tip('Share a video from any app and tap "Share to Reels Downloader"'),
+          _tip('Share a video from any app and tap "Share to HieL SmD"'),
           _tip('YouTube: works with videos, shorts and playlists links'),
           _tip('For Instagram/TikTok: use the "Copy Link" option in the app'),
           _tip('Audio Only saves as .webm (YouTube) - no re-encoding for speed'),

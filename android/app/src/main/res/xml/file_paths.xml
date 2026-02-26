@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Public Downloads folder: /storage/emulated/0/Download/... -->
+    <external-path name="external_files" path="." />
+    <!-- App-specific external storage: Android/data/<pkg>/files/... -->
+    <external-files-path name="app_external_files" path="." />
+    <!-- App internal documents dir (fallback) -->
+    <files-path name="app_files" path="." />
+    <!-- Cache dir -->
+    <cache-path name="cache" path="." />
+</paths>

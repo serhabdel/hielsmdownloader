@@ -103,7 +103,7 @@ class _ReelsDownloaderAppState extends State<ReelsDownloaderApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Reels Downloader',
+      title: 'HieL SmD',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const HomeScreen(),

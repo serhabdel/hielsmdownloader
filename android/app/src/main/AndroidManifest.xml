@@ -30,7 +30,7 @@
         xmlns:tools="http://schemas.android.com/tools"/>
 
     <application
-        android:label="Reels Downloader"
+        android:label="HieL SmD"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true"
@@ -71,6 +71,18 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
+
+        <!-- FileProvider: required for share_plus to share files on Android 7+ (API 24+)
+             share_plus uses content:// URIs; without this provider it will crash or silently fail. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
     </application>
 
     <queries>
