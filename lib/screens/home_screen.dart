@@ -100,32 +100,27 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// Silently starts a download for [url] without filling the text field,
-  /// switches to the Downloads tab, and shows a snackbar.
-  void _autoDownload(String url) {
-    final quality = context.read<SettingsProvider>().defaultQuality;
-    context.read<DownloadProvider>().addDownload(url, quality);
+  /// Shows the download options sheet, then starts the download on confirm.
+  Future<void> _autoDownload(String url) async {
+    if (!mounted) return;
+    final defaultQuality = context.read<SettingsProvider>().defaultQuality;
+    await _showDownloadSheet(url, defaultQuality);
+  }
+
+  Future<void> _showDownloadSheet(String url, VideoQuality initialQuality) async {
+    if (!mounted) return;
+    final result = await showModalBottomSheet<_DownloadOptions>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DownloadOptionsSheet(
+        url: url,
+        initialQuality: initialQuality,
+      ),
+    );
+    if (result == null || !mounted) return;
+    context.read<DownloadProvider>().addDownload(result.url, result.quality);
     setState(() => _currentTab = 1);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.download_rounded, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Downloading: ${detectPlatform(url).displayName}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: AppTheme.primary,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
   }
 
   void _onUrlChanged() {
@@ -160,30 +155,12 @@ class _HomeScreenState extends State<HomeScreen>
   void _startDownload() {
     final url = _urlController.text.trim();
     if (!isValidUrl(url)) return;
-
-    context.read<DownloadProvider>().addDownload(url, _selectedQuality);
     _urlController.clear();
     setState(() {
       _urlValid = false;
       _detectedPlatform = SupportedPlatform.generic;
     });
-
-    // Switch to downloads tab
-    setState(() => _currentTab = 1);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.download_rounded, color: Colors.white, size: 18),
-            SizedBox(width: 8),
-            Text('Download started!'),
-          ],
-        ),
-        backgroundColor: AppTheme.primary,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    _showDownloadSheet(url, _selectedQuality);
   }
 
   @override
@@ -654,6 +631,338 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Download Options Sheet ───────────────────────────────────────────────────
+
+class _DownloadOptions {
+  final String url;
+  final VideoQuality quality;
+  const _DownloadOptions({required this.url, required this.quality});
+}
+
+class _DownloadOptionsSheet extends StatefulWidget {
+  final String url;
+  final VideoQuality initialQuality;
+
+  const _DownloadOptionsSheet({
+    required this.url,
+    required this.initialQuality,
+  });
+
+  @override
+  State<_DownloadOptionsSheet> createState() => _DownloadOptionsSheetState();
+}
+
+class _DownloadOptionsSheetState extends State<_DownloadOptionsSheet> {
+  late VideoQuality _quality;
+  late SupportedPlatform _platform;
+
+  // Format toggle: false = video, true = audio only
+  bool _audioOnly = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _platform = detectPlatform(widget.url);
+    _quality = widget.initialQuality == VideoQuality.audioOnly
+        ? VideoQuality.best
+        : widget.initialQuality;
+    _audioOnly = widget.initialQuality == VideoQuality.audioOnly;
+  }
+
+  VideoQuality get _effectiveQuality =>
+      _audioOnly ? VideoQuality.audioOnly : _quality;
+
+  // Quality options shown for video mode
+  static const _videoQualities = [
+    VideoQuality.best,
+    VideoQuality.hd1080,
+    VideoQuality.hd720,
+    VideoQuality.sd480,
+    VideoQuality.sd360,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.07),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle bar
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Header: platform icon + title
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _platform.color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(_platform.icon, color: _platform.color, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Download Options',
+                      style: TextStyle(
+                        color: AppTheme.onBackground,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      _platform.displayName,
+                      style: TextStyle(
+                        color: _platform.color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // URL preview
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.link_rounded, color: Colors.white38, size: 15),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Format toggle: Video / Audio
+          const Text(
+            'Format',
+            style: TextStyle(
+              color: AppTheme.onSurface,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _FormatChip(
+                label: 'Video (MP4)',
+                icon: Icons.videocam_rounded,
+                selected: !_audioOnly,
+                onTap: () => setState(() => _audioOnly = false),
+              ),
+              const SizedBox(width: 10),
+              _FormatChip(
+                label: 'Audio Only (MP3)',
+                icon: Icons.music_note_rounded,
+                selected: _audioOnly,
+                onTap: () => setState(() => _audioOnly = true),
+                accentColor: AppTheme.secondary,
+              ),
+            ],
+          ),
+
+          // Quality picker — only shown for video
+          if (!_audioOnly) ...[
+            const SizedBox(height: 20),
+            const Text(
+              'Quality',
+              style: TextStyle(
+                color: AppTheme.onSurface,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _videoQualities.map((q) {
+                final selected = _quality == q;
+                return GestureDetector(
+                  onTap: () => setState(() => _quality = q),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? AppTheme.primary.withValues(alpha: 0.2)
+                          : AppTheme.surfaceVariant,
+                      border: Border.all(
+                        color: selected
+                            ? AppTheme.primary
+                            : Colors.transparent,
+                        width: 1.5,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      q.label,
+                      style: TextStyle(
+                        color: selected
+                            ? AppTheme.primary
+                            : AppTheme.onSurface,
+                        fontSize: 13,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+
+          const SizedBox(height: 24),
+
+          // Action buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white54,
+                    side: const BorderSide(color: Colors.white12),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(
+                    context,
+                    _DownloadOptions(
+                      url: widget.url,
+                      quality: _effectiveQuality,
+                    ),
+                  ),
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  label: const Text('Download'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FormatChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color accentColor;
+
+  const _FormatChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.accentColor = AppTheme.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? accentColor.withValues(alpha: 0.18)
+              : AppTheme.surfaceVariant,
+          border: Border.all(
+            color: selected ? accentColor : Colors.transparent,
+            width: 1.5,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                size: 16,
+                color: selected ? accentColor : Colors.white38),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? accentColor : AppTheme.onSurface,
+                fontSize: 13,
+                fontWeight:
+                    selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
