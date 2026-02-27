@@ -212,15 +212,26 @@ class DownloadService {
     required String savePath,
     required void Function(double progress, int received, int total) onProgress,
     CancelToken? cancelToken,
+    /// Pass a pre-resolved [yt.StreamInfo] (typed as dynamic to avoid leaking
+    /// the youtube_explode_dart import into callers) from a prior
+    /// [fetchYoutubeInfo] call to avoid fetching the stream manifest a second time.
+    dynamic preResolvedStream,
   }) async {
-    final manifest = await _yt.videos.streams.getManifest(url);
     final video = await _yt.videos.get(url);
 
     yt.StreamInfo streamInfo;
 
-    if (quality == VideoQuality.audioOnly) {
+    if (preResolvedStream != null && preResolvedStream is yt.StreamInfo) {
+      // Reuse the already-resolved stream info — no second manifest fetch needed.
+      streamInfo = preResolvedStream;
+    } else if (quality == VideoQuality.audioOnly) {
+      final manifest = await _yt.videos.streams.getManifest(url);
+      if (manifest.audioOnly.isEmpty) {
+        throw Exception('No audio stream available for this video.');
+      }
       streamInfo = manifest.audioOnly.withHighestBitrate();
     } else {
+      final manifest = await _yt.videos.streams.getManifest(url);
       // Try muxed streams first (they contain both audio and video)
       final muxed = manifest.muxed.sortByVideoQuality();
       if (muxed.isNotEmpty) {
@@ -250,23 +261,27 @@ class DownloadService {
     final totalBytes = streamInfo.size.totalBytes;
     int received = 0;
 
-    await for (final chunk in stream) {
-      if (cancelToken?.isCancelled == true) {
-        await sink.close();
-        await file.delete();
-        throw Exception('Download cancelled');
+    try {
+      await for (final chunk in stream) {
+        if (cancelToken?.isCancelled == true) {
+          throw Exception('Download cancelled');
+        }
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress(
+          totalBytes > 0 ? received / totalBytes : 0,
+          received,
+          totalBytes,
+        );
       }
-      sink.add(chunk);
-      received += chunk.length;
-      onProgress(
-        totalBytes > 0 ? received / totalBytes : 0,
-        received,
-        totalBytes,
-      );
+      await sink.flush();
+      await sink.close();
+    } catch (e) {
+      // Always close and remove the partial file on any error (including cancel).
+      await sink.close();
+      if (await file.exists()) await file.delete();
+      rethrow;
     }
-
-    await sink.flush();
-    await sink.close();
 
     // Notify Android MediaStore so the file appears in Gallery
     await scanFileToGallery(filePath);
