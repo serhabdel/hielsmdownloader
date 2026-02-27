@@ -185,7 +185,7 @@ class DownloadProvider extends ChangeNotifier {
     String savePath,
     CancelToken cancelToken,
   ) async {
-    // Fetch info
+    // Fetch info (also resolves the stream manifest once up-front).
     VideoInfo? info;
     try {
       info = await DownloadService.fetchYoutubeInfo(item.url);
@@ -202,30 +202,59 @@ class DownloadProvider extends ChangeNotifier {
       ));
     }
 
-    final savedPath = await DownloadService.downloadYoutube(
-      url: item.url,
-      quality: item.quality,
-      savePath: savePath,
-      cancelToken: cancelToken,
-      onProgress: (progress, received, total) {
-        final current = _getItem(item.id);
-        if (current == null) return;
-        _updateItem(item.id, current.copyWith(
-          progress: progress,
-          downloadedBytes: received,
-          fileSizeBytes: total > 0 ? total : null,
-        ));
-        final pct = (progress * 100).toInt();
-        NotificationService.showProgress(
-          downloadId: item.id,
-          title: current.title,
-          progress: pct,
-          receivedBytes: received,
-          totalBytes: total,
-        );
-        ForegroundService.update('${current.title} — $pct%');
-      },
-    );
+    // Reuse the stream info that was already resolved during fetchYoutubeInfo so
+    // we don't need to fetch the manifest a second time inside downloadYoutube.
+    final preResolved = info?.streams
+        .where((s) => item.quality == VideoQuality.audioOnly
+            ? s.isAudioOnly
+            : !s.isAudioOnly)
+        .map((s) => s.streamInfo)
+        .where((si) => si != null)
+        .firstOrNull;
+
+    void reportProgress(double progress, int received, int total) {
+      final current = _getItem(item.id);
+      if (current == null) return;
+      _updateItem(item.id, current.copyWith(
+        progress: progress,
+        downloadedBytes: received,
+        fileSizeBytes: total > 0 ? total : null,
+      ));
+      final pct = (progress * 100).toInt();
+      NotificationService.showProgress(
+        downloadId: item.id,
+        title: current.title,
+        progress: pct,
+        receivedBytes: received,
+        totalBytes: total,
+      );
+      ForegroundService.update('${current.title} — $pct%');
+    }
+
+    String savedPath;
+    try {
+      savedPath = await DownloadService.downloadYoutube(
+        url: item.url,
+        quality: item.quality,
+        savePath: savePath,
+        cancelToken: cancelToken,
+        preResolvedStream: preResolved,
+        onProgress: reportProgress,
+      );
+    } catch (e) {
+      // Do not retry if the user cancelled.
+      if (cancelToken.isCancelled) rethrow;
+      // One retry with a fresh manifest fetch (no pre-resolved stream) in case
+      // the CDN URL expired between info-fetch and download start.
+      await Future.delayed(const Duration(seconds: 2));
+      savedPath = await DownloadService.downloadYoutube(
+        url: item.url,
+        quality: item.quality,
+        savePath: savePath,
+        cancelToken: cancelToken,
+        onProgress: reportProgress,
+      );
+    }
 
     final current = _getItem(item.id);
     if (current != null && current.status != DownloadStatus.cancelled) {
