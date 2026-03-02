@@ -140,17 +140,23 @@ class DownloadProvider extends ChangeNotifier {
       }
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
-        _updateItem(item.id, _getItem(item.id)!.copyWith(
-          status: DownloadStatus.cancelled,
-          errorMessage: 'Download cancelled',
-        ));
+        final current = _getItem(item.id);
+        if (current != null) {
+          _updateItem(item.id, current.copyWith(
+            status: DownloadStatus.cancelled,
+            errorMessage: 'Download cancelled',
+          ));
+        }
         await NotificationService.cancel(item.id);
       } else {
         final msg = e.message ?? 'Network error';
-        _updateItem(item.id, _getItem(item.id)!.copyWith(
-          status: DownloadStatus.failed,
-          errorMessage: msg,
-        ));
+        final current = _getItem(item.id);
+        if (current != null) {
+          _updateItem(item.id, current.copyWith(
+            status: DownloadStatus.failed,
+            errorMessage: msg,
+          ));
+        }
         await NotificationService.showFailed(
           downloadId: item.id,
           title: _getItem(item.id)?.title ?? 'Download',
@@ -159,10 +165,13 @@ class DownloadProvider extends ChangeNotifier {
       }
     } catch (e) {
       final msg = e.toString().replaceAll('Exception: ', '');
-      _updateItem(item.id, _getItem(item.id)!.copyWith(
-        status: DownloadStatus.failed,
-        errorMessage: msg,
-      ));
+      final current = _getItem(item.id);
+      if (current != null) {
+        _updateItem(item.id, current.copyWith(
+          status: DownloadStatus.failed,
+          errorMessage: msg,
+        ));
+      }
       await NotificationService.showFailed(
         downloadId: item.id,
         title: _getItem(item.id)?.title ?? 'Download',
@@ -171,6 +180,7 @@ class DownloadProvider extends ChangeNotifier {
     } finally {
       _cancelTokens.remove(item.id);
       _activeDownloads.remove(item.id);
+      _lastNotificationUpdateById.remove(item.id);
       _activeCount = (_activeCount - 1).clamp(0, 999);
       _processQueuedItems();
       // Stop foreground service when no more active downloads
@@ -180,26 +190,52 @@ class DownloadProvider extends ChangeNotifier {
     }
   }
 
+  // Throttling for notification updates to prevent main thread blocking
+  final Map<String, DateTime> _lastNotificationUpdateById = {};
+  static const _notificationThrottleMs = 500; // Update at most every 500ms
+
+  bool _shouldUpdateNotification(String downloadId) {
+    final now = DateTime.now();
+    final last = _lastNotificationUpdateById[downloadId];
+    if (last == null ||
+        now.difference(last).inMilliseconds > _notificationThrottleMs) {
+      _lastNotificationUpdateById[downloadId] = now;
+      return true;
+    }
+    return false;
+  }
+
   Future<void> _downloadYoutube(
     DownloadItem item,
     String savePath,
     CancelToken cancelToken,
   ) async {
+    debugPrint('[DOWNLOAD] _downloadYoutube started for ${item.url}');
+    final stopwatch = Stopwatch()..start();
+    
     // Fetch info (also resolves the stream manifest once up-front).
     VideoInfo? info;
     try {
+      debugPrint('[DOWNLOAD] Fetching YouTube info...');
       info = await DownloadService.fetchYoutubeInfo(item.url);
-      _updateItem(item.id, _getItem(item.id)!.copyWith(
-        title: info.title,
-        thumbnailUrl: info.thumbnailUrl,
-        duration: info.duration,
-        author: info.author,
-        status: DownloadStatus.downloading,
-      ));
+      debugPrint('[DOWNLOAD] Got info: ${info.title}, streams: ${info.streams.length} (${stopwatch.elapsedMilliseconds}ms)');
+      final current = _getItem(item.id);
+      if (current != null) {
+        _updateItem(item.id, current.copyWith(
+          title: info.title,
+          thumbnailUrl: info.thumbnailUrl,
+          duration: info.duration,
+          author: info.author,
+          status: DownloadStatus.downloading,
+        ));
+      }
     } catch (_) {
-      _updateItem(item.id, _getItem(item.id)!.copyWith(
-        status: DownloadStatus.downloading,
-      ));
+      final current = _getItem(item.id);
+      if (current != null) {
+        _updateItem(item.id, current.copyWith(
+          status: DownloadStatus.downloading,
+        ));
+      }
     }
 
     // Reuse the stream info that was already resolved during fetchYoutubeInfo so
@@ -215,24 +251,29 @@ class DownloadProvider extends ChangeNotifier {
     void reportProgress(double progress, int received, int total) {
       final current = _getItem(item.id);
       if (current == null) return;
+
       _updateItem(item.id, current.copyWith(
         progress: progress,
         downloadedBytes: received,
         fileSizeBytes: total > 0 ? total : null,
       ));
-      final pct = (progress * 100).toInt();
-      NotificationService.showProgress(
-        downloadId: item.id,
-        title: current.title,
-        progress: pct,
-        receivedBytes: received,
-        totalBytes: total,
-      );
-      ForegroundService.update('${current.title} — $pct%');
+
+      if (_shouldUpdateNotification(item.id)) {
+        final pct = (progress * 100).toInt();
+        NotificationService.showProgress(
+          downloadId: item.id,
+          title: current.title,
+          progress: pct,
+          receivedBytes: received,
+          totalBytes: total,
+        );
+        ForegroundService.update('${current.title} — $pct%');
+      }
     }
 
     String savedPath;
     try {
+      debugPrint('[DOWNLOAD] Starting actual download with preResolvedStream: ${preResolved != null}');
       savedPath = await DownloadService.downloadYoutube(
         url: item.url,
         quality: item.quality,
@@ -241,6 +282,7 @@ class DownloadProvider extends ChangeNotifier {
         preResolvedStream: preResolved,
         onProgress: reportProgress,
       );
+      debugPrint('[DOWNLOAD] Download completed: $savedPath (${stopwatch.elapsedMilliseconds}ms total)');
     } catch (e) {
       // Do not retry if the user cancelled.
       if (cancelToken.isCancelled) rethrow;
@@ -283,15 +325,21 @@ class DownloadProvider extends ChangeNotifier {
 
     // Update title/thumbnail from the extracted info
     if (info.title.isNotEmpty || info.thumbnailUrl != null) {
-      _updateItem(item.id, _getItem(item.id)!.copyWith(
-        title: info.title.isNotEmpty ? info.title : item.platform.displayName,
-        thumbnailUrl: info.thumbnailUrl,
-        status: DownloadStatus.downloading,
-      ));
+      final current = _getItem(item.id);
+      if (current != null) {
+        _updateItem(item.id, current.copyWith(
+          title: info.title.isNotEmpty ? info.title : item.platform.displayName,
+          thumbnailUrl: info.thumbnailUrl,
+          status: DownloadStatus.downloading,
+        ));
+      }
     } else {
-      _updateItem(item.id, _getItem(item.id)!.copyWith(
-        status: DownloadStatus.downloading,
-      ));
+      final current = _getItem(item.id);
+      if (current != null) {
+        _updateItem(item.id, current.copyWith(
+          status: DownloadStatus.downloading,
+        ));
+      }
     }
 
     final savedPath = await DownloadService.downloadViaHttp(
@@ -308,15 +356,17 @@ class DownloadProvider extends ChangeNotifier {
           downloadedBytes: received,
           fileSizeBytes: total > 0 ? total : null,
         ));
-        final pct = (progress * 100).toInt();
-        NotificationService.showProgress(
-          downloadId: item.id,
-          title: current.title,
-          progress: pct,
-          receivedBytes: received,
-          totalBytes: total,
-        );
-        ForegroundService.update('${current.title} — $pct%');
+        if (_shouldUpdateNotification(item.id)) {
+          final pct = (progress * 100).toInt();
+          NotificationService.showProgress(
+            downloadId: item.id,
+            title: current.title,
+            progress: pct,
+            receivedBytes: received,
+            totalBytes: total,
+          );
+          ForegroundService.update('${current.title} — $pct%');
+        }
       },
     );
 

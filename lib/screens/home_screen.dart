@@ -165,13 +165,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Defer building non-visible tabs to reduce startup jank
+    // Each tab is built only when first shown or kept alive after first show
     return Scaffold(
       body: IndexedStack(
         index: _currentTab,
         children: [
           _buildHomeTab(),
-          const DownloadsScreen(),
-          const SettingsScreen(),
+          _KeepAliveWrapper(child: const DownloadsScreen()),
+          _KeepAliveWrapper(child: const SettingsScreen()),
         ],
       ),
       bottomNavigationBar: _buildBottomBar(),
@@ -607,7 +609,7 @@ class _HomeScreenState extends State<HomeScreen>
           _tip('Share a video from any app and tap "Share to HieL SmD"'),
           _tip('YouTube: works with videos, shorts and playlists links'),
           _tip('For Instagram/TikTok: use the "Copy Link" option in the app'),
-          _tip('Audio Only saves as .webm (YouTube) - no re-encoding for speed'),
+          _tip('Audio Only saves as .mp3 - convenient for music playback'),
         ],
       ),
     );
@@ -633,6 +635,42 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
     );
+  }
+}
+
+// ─── Keep Alive Wrapper for Lazy Tab Building ─────────────────────────────────
+
+class _KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveWrapper({required this.child});
+
+  @override
+  State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
+    with AutomaticKeepAliveClientMixin {
+  bool _hasBeenVisible = false;
+
+  @override
+  bool get wantKeepAlive => _hasBeenVisible;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    
+    // Only build the child after it's been shown once
+    // This defers building non-visible tabs at startup
+    if (!_hasBeenVisible) {
+      _hasBeenVisible = true;
+      // Defer the actual build to next frame to avoid jank
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+      return const SizedBox.expand(); // Placeholder while deferring
+    }
+    
+    return widget.child;
   }
 }
 

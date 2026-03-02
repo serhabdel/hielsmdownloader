@@ -13,12 +13,15 @@ import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final startupStopwatch = Stopwatch()..start();
+  debugPrint('[STARTUP] main() started');
 
   // Lock to portrait
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  debugPrint('[STARTUP] setPreferredOrientations: ${startupStopwatch.elapsedMilliseconds}ms');
 
   // Transparent status bar
   SystemChrome.setSystemUIOverlayStyle(
@@ -29,15 +32,21 @@ void main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+  debugPrint('[STARTUP] setSystemUIOverlayStyle: ${startupStopwatch.elapsedMilliseconds}ms');
 
   // Load settings
   final settings = SettingsProvider();
   await settings.load();
+  debugPrint('[STARTUP] settings.load(): ${startupStopwatch.elapsedMilliseconds}ms');
 
   // Init background services
   ForegroundService.init();
+  debugPrint('[STARTUP] ForegroundService.init(): ${startupStopwatch.elapsedMilliseconds}ms');
+  
   await NotificationService.init();
+  debugPrint('[STARTUP] NotificationService.init(): ${startupStopwatch.elapsedMilliseconds}ms');
 
+  debugPrint('[STARTUP] Total before runApp: ${startupStopwatch.elapsedMilliseconds}ms');
   runApp(
     MultiProvider(
       providers: [

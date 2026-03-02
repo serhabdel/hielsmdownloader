@@ -1,6 +1,10 @@
+import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:direct_link/direct_link.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -164,8 +168,14 @@ class DownloadService {
   // ─── YouTube ────────────────────────────────────────────────────────────────
 
   static Future<VideoInfo> fetchYoutubeInfo(String url) async {
+    debugPrint('[YOUTUBE_INFO] Fetching info for: $url');
+    final stopwatch = Stopwatch()..start();
+    
     final video = await _yt.videos.get(url);
+    debugPrint('[YOUTUBE_INFO] Got video: ${video.title} (${stopwatch.elapsedMilliseconds}ms)');
+    
     final manifest = await _yt.videos.streams.getManifest(url);
+    debugPrint('[YOUTUBE_INFO] Got manifest - muxed: ${manifest.muxed.length}, audioOnly: ${manifest.audioOnly.length}, videoOnly: ${manifest.videoOnly.length} (${stopwatch.elapsedMilliseconds}ms)');
 
     final streams = <StreamOption>[];
 
@@ -183,6 +193,7 @@ class DownloadService {
     // Best audio-only
     if (manifest.audioOnly.isNotEmpty) {
       final best = manifest.audioOnly.withHighestBitrate();
+      debugPrint('[YOUTUBE_INFO] Best audio stream: ${best.container.name}, bitrate: ${best.bitrate.bitsPerSecond}, size: ${best.size.totalBytes}');
       streams.add(StreamOption(
         label: 'Audio Only (${best.container.name})',
         quality: VideoQuality.audioOnly,
@@ -191,6 +202,8 @@ class DownloadService {
         isAudioOnly: true,
         streamInfo: best,
       ));
+    } else {
+      debugPrint('[YOUTUBE_INFO] WARNING: No audio-only streams available!');
     }
 
     final durationStr = video.duration != null
@@ -217,20 +230,29 @@ class DownloadService {
     /// [fetchYoutubeInfo] call to avoid fetching the stream manifest a second time.
     dynamic preResolvedStream,
   }) async {
+    debugPrint('[YOUTUBE_DL] Starting download - quality: $quality, url: $url');
+    final stopwatch = Stopwatch()..start();
+    
     final video = await _yt.videos.get(url);
+    debugPrint('[YOUTUBE_DL] Got video info: ${video.title} (${stopwatch.elapsedMilliseconds}ms)');
 
     yt.StreamInfo streamInfo;
 
     if (preResolvedStream != null && preResolvedStream is yt.StreamInfo) {
       // Reuse the already-resolved stream info — no second manifest fetch needed.
       streamInfo = preResolvedStream;
+      debugPrint('[YOUTUBE_DL] Using pre-resolved stream: ${streamInfo.container.name}');
     } else if (quality == VideoQuality.audioOnly) {
+      debugPrint('[YOUTUBE_DL] Fetching audio-only manifest...');
       final manifest = await _yt.videos.streams.getManifest(url);
+      debugPrint('[YOUTUBE_DL] Got manifest - audio streams: ${manifest.audioOnly.length} (${stopwatch.elapsedMilliseconds}ms)');
       if (manifest.audioOnly.isEmpty) {
         throw Exception('No audio stream available for this video.');
       }
       streamInfo = manifest.audioOnly.withHighestBitrate();
+      debugPrint('[YOUTUBE_DL] Selected audio stream: ${streamInfo.container.name}, bitrate: ${streamInfo.bitrate.bitsPerSecond}, size: ${streamInfo.size.totalBytes} bytes');
     } else {
+      debugPrint('[YOUTUBE_DL] Fetching video manifest for quality: $quality...');
       final manifest = await _yt.videos.streams.getManifest(url);
       // Try muxed streams first (they contain both audio and video)
       final muxed = manifest.muxed.sortByVideoQuality();
@@ -249,44 +271,82 @@ class DownloadService {
       }
     }
 
-    final ext = streamInfo.container.name;
+    // Use the stream's real container name for the intermediate file.
+    // If audio-only, we'll convert to MP3 with FFmpeg after download.
+    final ext = streamInfo.container.name; // e.g. "webm" or "mp4"
     final title = _sanitizeFilename(video.title);
     final fileName = '${title}_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final filePath = '$savePath/$fileName';
 
+    debugPrint('[YOUTUBE_DL] Opening stream... (${stopwatch.elapsedMilliseconds}ms)');
     final stream = _yt.videos.streams.get(streamInfo);
     final file = File(filePath);
     final sink = file.openWrite();
+    debugPrint('[YOUTUBE_DL] File opened for writing: $filePath');
 
     final totalBytes = streamInfo.size.totalBytes;
     int received = 0;
+    int chunkCount = 0;
+    DateTime? lastLog;
 
     try {
-      await for (final chunk in stream) {
+      debugPrint('[YOUTUBE_DL] Starting stream read loop - totalBytes: $totalBytes');
+      
+      // Use a stream timeout to detect stuck streams (common with audio-only)
+      // even when no chunks are emitted.
+      const chunkTimeout = Duration(seconds: 30);
+
+      await for (final chunk in stream.timeout(
+        chunkTimeout,
+        onTimeout: (_) {
+          throw TimeoutException(
+            'Download stream timed out. The video may be restricted or the stream URL expired.',
+          );
+        },
+      )) {
         if (cancelToken?.isCancelled == true) {
           throw Exception('Download cancelled');
         }
+
         sink.add(chunk);
         received += chunk.length;
+        chunkCount++;
+
+        final now = DateTime.now();
+        // Log every 100 chunks or every 5 seconds
+        if (chunkCount % 100 == 0 || (lastLog == null || now.difference(lastLog).inSeconds > 5)) {
+          debugPrint('[YOUTUBE_DL] Progress: $chunkCount chunks, $received / $totalBytes bytes (${(received/totalBytes*100).toStringAsFixed(1)}%)');
+          lastLog = now;
+        }
+        
         onProgress(
           totalBytes > 0 ? received / totalBytes : 0,
           received,
           totalBytes,
         );
       }
+      debugPrint('[YOUTUBE_DL] Stream completed - $chunkCount chunks, $received bytes total (${stopwatch.elapsedMilliseconds}ms)');
       await sink.flush();
       await sink.close();
-    } catch (e) {
+      debugPrint('[YOUTUBE_DL] File saved successfully');
+    } catch (e, stackTrace) {
       // Always close and remove the partial file on any error (including cancel).
+      debugPrint('[YOUTUBE_DL] ERROR during download: $e');
+      debugPrint('[YOUTUBE_DL] Stack trace: $stackTrace');
       await sink.close();
       if (await file.exists()) await file.delete();
       rethrow;
     }
 
-    // Notify Android MediaStore so the file appears in Gallery
-    await scanFileToGallery(filePath);
+    // Convert to real MP3 if audio-only was requested.
+    final outputPath = quality == VideoQuality.audioOnly
+        ? await _convertToMp3(filePath)
+        : filePath;
 
-    return filePath;
+    // Notify Android MediaStore so the file appears in Files/Music app.
+    await scanFileToGallery(outputPath);
+
+    return outputPath;
   }
 
   // ─── Generic HTTP download (Instagram, TikTok via yt-dlp API, etc.) ────────
@@ -348,17 +408,15 @@ class DownloadService {
     CancelToken? cancelToken,
     bool audioOnly = false,
   }) async {
-    // For social platforms we get a raw video stream — we save as-is.
-    // Audio-only mode saves the same stream but as .mp3 (best-effort;
-    // most platforms serve AAC/MP4 audio streams for reels/shorts).
-    final ext = audioOnly ? 'mp3' : 'mp4';
-    final fileName =
-        '${_sanitizeFilename(title)}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-    final filePath = '$savePath/$fileName';
+    // Always download the raw stream as .mp4 (the actual container from the CDN).
+    // If audio-only is requested, FFmpeg will extract and re-encode to real MP3.
+    final tempFileName =
+        '${_sanitizeFilename(title)}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final tempFilePath = '$savePath/$tempFileName';
 
     await _dio.download(
       directUrl,
-      filePath,
+      tempFilePath,
       cancelToken: cancelToken,
       onReceiveProgress: (received, total) {
         if (total > 0) {
@@ -378,13 +436,48 @@ class DownloadService {
       ),
     );
 
-    // Notify Android MediaStore so the file appears in Gallery
-    await scanFileToGallery(filePath);
+    // Convert to real MP3 if requested; otherwise keep the .mp4 as-is.
+    final outputPath = audioOnly
+        ? await _convertToMp3(tempFilePath)
+        : tempFilePath;
 
-    return filePath;
+    // Notify Android MediaStore so the file appears in Files/Music app.
+    await scanFileToGallery(outputPath);
+
+    return outputPath;
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  /// Converts any audio/video file at [inputPath] to a real MP3 using FFmpeg
+  /// (lame encoder, 192 kbps, 44100 Hz, stereo).
+  /// Deletes the intermediate [inputPath] file on success.
+  /// Returns the path of the resulting .mp3 file.
+  static Future<String> _convertToMp3(String inputPath) async {
+    final outputPath = inputPath.replaceAll(RegExp(r'\.[^.]+$'), '.mp3');
+    debugPrint('[FFmpeg] Converting "$inputPath" → "$outputPath"');
+
+    final session = await FFmpegKit.execute(
+      '-y -i "$inputPath" -vn -ar 44100 -ac 2 -b:a 192k "$outputPath"',
+    );
+
+    final returnCode = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(returnCode)) {
+      final logs = await session.getOutput();
+      debugPrint('[FFmpeg] Conversion failed: $logs');
+      throw Exception('Audio conversion to MP3 failed. Please try again.');
+    }
+
+    debugPrint('[FFmpeg] Conversion successful');
+
+    // Remove the intermediate downloaded file.
+    try {
+      final tmp = File(inputPath);
+      if (await tmp.exists()) await tmp.delete();
+    } catch (_) {}
+
+    return outputPath;
+  }
 
   static VideoQuality _heightToQuality(int height) {
     if (height >= 1080) return VideoQuality.hd1080;
