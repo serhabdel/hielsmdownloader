@@ -39,10 +39,13 @@ Get the latest APK from [Releases](https://github.com/serhabdel/hielsmdownloader
 
 ```bash
 flutter pub get
-flutter build apk --release
+flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
 ```
 
-Output: `build/app/outputs/flutter-apk/app-release.apk`
+Output:
+
+- `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` → v8 (most modern devices)
+- `build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk` → v7 (older 32-bit devices)
 
 ## License
 
