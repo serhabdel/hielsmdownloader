@@ -240,10 +240,10 @@ class DownloadProvider extends ChangeNotifier {
 
     // Reuse the stream info that was already resolved during fetchYoutubeInfo so
     // we don't need to fetch the manifest a second time inside downloadYoutube.
-    final preResolved = info?.streams
-        .where((s) => item.quality == VideoQuality.audioOnly
-            ? s.isAudioOnly
-            : !s.isAudioOnly)
+    final preResolved = item.quality == VideoQuality.audioOnly
+      ? null
+      : info?.streams
+        .where((s) => !s.isAudioOnly)
         .map((s) => s.streamInfo)
         .where((si) => si != null)
         .firstOrNull;
@@ -280,6 +280,21 @@ class DownloadProvider extends ChangeNotifier {
         savePath: savePath,
         cancelToken: cancelToken,
         preResolvedStream: preResolved,
+        onConverting: () {
+          final current = _getItem(item.id);
+          if (current == null) return;
+          _updateItem(item.id, current.copyWith(
+            status: DownloadStatus.converting,
+          ));
+          NotificationService.showProgress(
+            downloadId: item.id,
+            title: '${current.title} — Converting to MP3',
+            progress: -1,
+            receivedBytes: current.downloadedBytes ?? 0,
+            totalBytes: current.fileSizeBytes ?? 0,
+          );
+          ForegroundService.update('${current.title} — Converting to MP3');
+        },
         onProgress: reportProgress,
       );
       debugPrint('[DOWNLOAD] Download completed: $savedPath (${stopwatch.elapsedMilliseconds}ms total)');
@@ -294,6 +309,21 @@ class DownloadProvider extends ChangeNotifier {
         quality: item.quality,
         savePath: savePath,
         cancelToken: cancelToken,
+        onConverting: () {
+          final current = _getItem(item.id);
+          if (current == null) return;
+          _updateItem(item.id, current.copyWith(
+            status: DownloadStatus.converting,
+          ));
+          NotificationService.showProgress(
+            downloadId: item.id,
+            title: '${current.title} — Converting to MP3',
+            progress: -1,
+            receivedBytes: current.downloadedBytes ?? 0,
+            totalBytes: current.fileSizeBytes ?? 0,
+          );
+          ForegroundService.update('${current.title} — Converting to MP3');
+        },
         onProgress: reportProgress,
       );
     }

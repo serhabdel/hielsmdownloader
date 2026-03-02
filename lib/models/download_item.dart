@@ -4,6 +4,7 @@ enum DownloadStatus {
   queued,
   fetchingInfo,
   downloading,
+  converting,
   completed,
   failed,
   cancelled,
@@ -93,6 +94,7 @@ class DownloadItem {
     // Mark in-progress items as failed since they were interrupted
     if (parsedStatus == DownloadStatus.downloading ||
         parsedStatus == DownloadStatus.fetchingInfo ||
+        parsedStatus == DownloadStatus.converting ||
         parsedStatus == DownloadStatus.queued) {
       parsedStatus = DownloadStatus.failed;
     }
@@ -179,6 +181,8 @@ extension DownloadStatusX on DownloadStatus {
         return 'Fetching info';
       case DownloadStatus.downloading:
         return 'Downloading';
+      case DownloadStatus.converting:
+        return 'Converting to MP3';
       case DownloadStatus.completed:
         return 'Completed';
       case DownloadStatus.failed:
@@ -191,7 +195,8 @@ extension DownloadStatusX on DownloadStatus {
   bool get isActive =>
       this == DownloadStatus.queued ||
       this == DownloadStatus.fetchingInfo ||
-      this == DownloadStatus.downloading;
+      this == DownloadStatus.downloading ||
+      this == DownloadStatus.converting;
 
   Color get color {
     switch (this) {
@@ -201,6 +206,8 @@ extension DownloadStatusX on DownloadStatus {
         return const Color(0xFF42A5F5);
       case DownloadStatus.downloading:
         return const Color(0xFF6C63FF);
+      case DownloadStatus.converting:
+        return const Color(0xFF03DAC6);
       case DownloadStatus.completed:
         return const Color(0xFF4CAF50);
       case DownloadStatus.failed:

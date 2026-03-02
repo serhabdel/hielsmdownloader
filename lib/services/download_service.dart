@@ -224,6 +224,7 @@ class DownloadService {
     required VideoQuality quality,
     required String savePath,
     required void Function(double progress, int received, int total) onProgress,
+    void Function()? onConverting,
     CancelToken? cancelToken,
     /// Pass a pre-resolved [yt.StreamInfo] (typed as dynamic to avoid leaking
     /// the youtube_explode_dart import into callers) from a prior
@@ -271,12 +272,50 @@ class DownloadService {
       }
     }
 
-    // Use the stream's real container name for the intermediate file.
-    // If audio-only, we'll convert to MP3 with FFmpeg after download.
-    final ext = streamInfo.container.name; // e.g. "webm" or "mp4"
+    final audioAlreadyMp3 =
+      quality == VideoQuality.audioOnly && _isMp3AudioStream(streamInfo);
+
+    // For audio-only, keep final user-facing extension as .mp3 whenever
+    // possible. If source is not MP3, download to temp and convert.
+    final ext = quality == VideoQuality.audioOnly
+      ? (audioAlreadyMp3 ? 'mp3' : 'tmp')
+      : streamInfo.container.name; // e.g. "webm" or "mp4"
     final title = _sanitizeFilename(video.title);
     final fileName = '${title}_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final filePath = '$savePath/$fileName';
+
+    // Audio-only streams are more reliable when downloaded via direct HTTP URL
+    // (Dio) than the chunked youtube_explode stream iterator on some devices.
+    if (quality == VideoQuality.audioOnly) {
+      final directUrl = streamInfo.url.toString();
+      await _dio.download(
+        directUrl,
+        filePath,
+        cancelToken: cancelToken,
+        onReceiveProgress: (received, total) {
+          onProgress(total > 0 ? received / total : 0, received, total);
+        },
+        options: Options(
+          receiveTimeout: const Duration(minutes: 30),
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36',
+            'Referer': 'https://www.youtube.com/',
+          },
+        ),
+      );
+
+      if (audioAlreadyMp3) {
+        await scanFileToGallery(filePath);
+        return filePath;
+      }
+
+      onConverting?.call();
+      final outputPath = await _convertToMp3(filePath);
+      await scanFileToGallery(outputPath);
+      return outputPath;
+    }
 
     debugPrint('[YOUTUBE_DL] Opening stream... (${stopwatch.elapsedMilliseconds}ms)');
     final stream = _yt.videos.streams.get(streamInfo);
@@ -292,16 +331,21 @@ class DownloadService {
     try {
       debugPrint('[YOUTUBE_DL] Starting stream read loop - totalBytes: $totalBytes');
       
-      // Use a stream timeout to detect stuck streams (common with audio-only)
-      // even when no chunks are emitted.
-      const chunkTimeout = Duration(seconds: 30);
+      // Use a stream timeout to detect stuck streams even when no chunks are
+      // emitted. Audio-only streams may have longer initial latency.
+      final chunkTimeout = quality == VideoQuality.audioOnly
+          ? const Duration(seconds: 90)
+          : const Duration(seconds: 45);
 
       await for (final chunk in stream.timeout(
         chunkTimeout,
-        onTimeout: (_) {
-          throw TimeoutException(
-            'Download stream timed out. The video may be restricted or the stream URL expired.',
+        onTimeout: (eventSink) {
+          eventSink.addError(
+            TimeoutException(
+              'Download stream timed out. The video may be restricted or the stream URL expired.',
+            ),
           );
+          eventSink.close();
         },
       )) {
         if (cancelToken?.isCancelled == true) {
@@ -340,13 +384,18 @@ class DownloadService {
 
     // Convert to real MP3 if audio-only was requested.
     final outputPath = quality == VideoQuality.audioOnly
-        ? await _convertToMp3(filePath)
-        : filePath;
+        ? (() async {
+            onConverting?.call();
+            return _convertToMp3(filePath);
+          })()
+        : Future.value(filePath);
+
+    final resolvedOutputPath = await outputPath;
 
     // Notify Android MediaStore so the file appears in Files/Music app.
-    await scanFileToGallery(outputPath);
+    await scanFileToGallery(resolvedOutputPath);
 
-    return outputPath;
+    return resolvedOutputPath;
   }
 
   // ─── Generic HTTP download (Instagram, TikTok via yt-dlp API, etc.) ────────
@@ -501,6 +550,14 @@ class DownloadService {
       default:
         return false;
     }
+  }
+
+  static bool _isMp3AudioStream(yt.StreamInfo streamInfo) {
+    final container = streamInfo.container.name.toLowerCase();
+    if (container == 'mp3') return true;
+
+    final url = streamInfo.url.toString().toLowerCase();
+    return url.contains('.mp3') || url.contains('mime=audio%2Fmpeg');
   }
 
   static String _formatDuration(Duration d) {

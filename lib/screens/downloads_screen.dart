@@ -223,8 +223,9 @@ class _DownloadCard extends StatelessWidget {
               ],
             ),
           ),
-          if (item.status == DownloadStatus.downloading ||
-              item.status == DownloadStatus.fetchingInfo)
+            if (item.status == DownloadStatus.downloading ||
+              item.status == DownloadStatus.fetchingInfo ||
+              item.status == DownloadStatus.converting)
             _buildProgressBar(),
         ],
       ),
@@ -440,11 +441,13 @@ class _DownloadCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: item.status == DownloadStatus.fetchingInfo
+                  || item.status == DownloadStatus.converting
                   ? null
                   : item.progress,
               backgroundColor: AppTheme.surfaceVariant,
               valueColor: AlwaysStoppedAnimation<Color>(
                 item.status == DownloadStatus.fetchingInfo
+                  || item.status == DownloadStatus.converting
                     ? AppTheme.secondary
                     : AppTheme.primary,
               ),
