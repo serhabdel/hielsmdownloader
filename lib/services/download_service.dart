@@ -288,23 +288,43 @@ class DownloadService {
     // (Dio) than the chunked youtube_explode stream iterator on some devices.
     if (quality == VideoQuality.audioOnly) {
       final directUrl = streamInfo.url.toString();
-      await _dio.download(
-        directUrl,
-        filePath,
-        cancelToken: cancelToken,
-        onReceiveProgress: (received, total) {
-          onProgress(total > 0 ? received / total : 0, received, total);
-        },
-        options: Options(
-          receiveTimeout: const Duration(minutes: 30),
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 '
-                    '(KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36',
-            'Referer': 'https://www.youtube.com/',
+      try {
+        await _dio.download(
+          directUrl,
+          filePath,
+          cancelToken: cancelToken,
+          onReceiveProgress: (received, total) {
+            onProgress(total > 0 ? received / total : 0, received, total);
           },
-        ),
-      );
+          options: Options(
+            receiveTimeout: const Duration(minutes: 30),
+            headers: {
+              'User-Agent':
+                  'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36',
+              'Referer': 'https://www.youtube.com/',
+            },
+          ),
+        );
+      } on DioException catch (e) {
+        if (cancelToken?.isCancelled == true || CancelToken.isCancel(e)) {
+          rethrow;
+        }
+
+        final status = e.response?.statusCode;
+        debugPrint(
+          '[YOUTUBE_DL] Direct audio HTTP failed (${status ?? 'no-status'}). Falling back to youtube_explode stream.',
+        );
+
+        await _downloadYoutubeStreamToFile(
+          streamInfo: streamInfo,
+          filePath: filePath,
+          quality: quality,
+          cancelToken: cancelToken,
+          onProgress: onProgress,
+          stopwatch: stopwatch,
+        );
+      }
 
       if (audioAlreadyMp3) {
         await scanFileToGallery(filePath);
@@ -396,6 +416,81 @@ class DownloadService {
     await scanFileToGallery(resolvedOutputPath);
 
     return resolvedOutputPath;
+  }
+
+  static Future<void> _downloadYoutubeStreamToFile({
+    required yt.StreamInfo streamInfo,
+    required String filePath,
+    required VideoQuality quality,
+    required void Function(double progress, int received, int total) onProgress,
+    required Stopwatch stopwatch,
+    CancelToken? cancelToken,
+  }) async {
+    debugPrint('[YOUTUBE_DL] Opening stream... (${stopwatch.elapsedMilliseconds}ms)');
+    final stream = _yt.videos.streams.get(streamInfo);
+    final file = File(filePath);
+    final sink = file.openWrite();
+    debugPrint('[YOUTUBE_DL] File opened for writing: $filePath');
+
+    final totalBytes = streamInfo.size.totalBytes;
+    int received = 0;
+    int chunkCount = 0;
+    DateTime? lastLog;
+
+    try {
+      debugPrint('[YOUTUBE_DL] Starting stream read loop - totalBytes: $totalBytes');
+
+      final chunkTimeout = quality == VideoQuality.audioOnly
+          ? const Duration(seconds: 90)
+          : const Duration(seconds: 45);
+
+      await for (final chunk in stream.timeout(
+        chunkTimeout,
+        onTimeout: (eventSink) {
+          eventSink.addError(
+            TimeoutException(
+              'Download stream timed out. The video may be restricted or the stream URL expired.',
+            ),
+          );
+          eventSink.close();
+        },
+      )) {
+        if (cancelToken?.isCancelled == true) {
+          throw Exception('Download cancelled');
+        }
+
+        sink.add(chunk);
+        received += chunk.length;
+        chunkCount++;
+
+        final now = DateTime.now();
+        if (chunkCount % 100 == 0 ||
+            (lastLog == null || now.difference(lastLog).inSeconds > 5)) {
+          debugPrint(
+            '[YOUTUBE_DL] Progress: $chunkCount chunks, $received / $totalBytes bytes (${(received / totalBytes * 100).toStringAsFixed(1)}%)',
+          );
+          lastLog = now;
+        }
+
+        onProgress(
+          totalBytes > 0 ? received / totalBytes : 0,
+          received,
+          totalBytes,
+        );
+      }
+      debugPrint(
+        '[YOUTUBE_DL] Stream completed - $chunkCount chunks, $received bytes total (${stopwatch.elapsedMilliseconds}ms)',
+      );
+      await sink.flush();
+      await sink.close();
+      debugPrint('[YOUTUBE_DL] File saved successfully');
+    } catch (e, stackTrace) {
+      debugPrint('[YOUTUBE_DL] ERROR during download: $e');
+      debugPrint('[YOUTUBE_DL] Stack trace: $stackTrace');
+      await sink.close();
+      if (await file.exists()) await file.delete();
+      rethrow;
+    }
   }
 
   // ─── Generic HTTP download (Instagram, TikTok via yt-dlp API, etc.) ────────
