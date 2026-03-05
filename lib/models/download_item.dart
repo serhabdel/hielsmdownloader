@@ -4,7 +4,6 @@ enum DownloadStatus {
   queued,
   fetchingInfo,
   downloading,
-  converting,
   completed,
   failed,
   cancelled,
@@ -46,6 +45,11 @@ class DownloadItem {
   VideoQuality quality;
   int? fileSizeBytes;
   int? downloadedBytes;
+  int? speedBytesPerSec;
+  /// Local path of the partial (in-progress) file used for HTTP Range resume.
+  /// Populated early (when the download filename is first decided) so that
+  /// retries can reuse the same partial file and skip already-received bytes.
+  String? partialFilePath;
   DateTime createdAt;
 
   DownloadItem({
@@ -63,6 +67,8 @@ class DownloadItem {
     this.quality = VideoQuality.best,
     this.fileSizeBytes,
     this.downloadedBytes,
+    this.speedBytesPerSec,
+    this.partialFilePath,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -81,6 +87,8 @@ class DownloadItem {
         'quality': quality.name,
         'fileSizeBytes': fileSizeBytes,
         'downloadedBytes': downloadedBytes,
+        'speedBytesPerSec': speedBytesPerSec,
+        'partialFilePath': partialFilePath,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -94,7 +102,6 @@ class DownloadItem {
     // Mark in-progress items as failed since they were interrupted
     if (parsedStatus == DownloadStatus.downloading ||
         parsedStatus == DownloadStatus.fetchingInfo ||
-        parsedStatus == DownloadStatus.converting ||
         parsedStatus == DownloadStatus.queued) {
       parsedStatus = DownloadStatus.failed;
     }
@@ -132,6 +139,8 @@ class DownloadItem {
       quality: parsedQuality,
       fileSizeBytes: json['fileSizeBytes'] as int?,
       downloadedBytes: json['downloadedBytes'] as int?,
+      speedBytesPerSec: json['speedBytesPerSec'] as int?,
+      partialFilePath: json['partialFilePath'] as String?,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),
@@ -151,6 +160,10 @@ class DownloadItem {
     VideoQuality? quality,
     int? fileSizeBytes,
     int? downloadedBytes,
+    int? speedBytesPerSec,
+    /// Pass [clearPartialFile] = true to explicitly set partialFilePath to null
+    /// (e.g. when clearing the partial record after a successful completion).
+    Object? partialFilePath = _sentinel,
   }) {
     return DownloadItem(
       id: id,
@@ -167,10 +180,17 @@ class DownloadItem {
       quality: quality ?? this.quality,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+      speedBytesPerSec: speedBytesPerSec ?? this.speedBytesPerSec,
+      partialFilePath: identical(partialFilePath, _sentinel)
+          ? this.partialFilePath
+          : partialFilePath as String?,
       createdAt: createdAt,
     );
   }
 }
+
+// Sentinel object used in copyWith to distinguish "not provided" from null.
+const _sentinel = Object();
 
 extension DownloadStatusX on DownloadStatus {
   String get label {
@@ -181,8 +201,6 @@ extension DownloadStatusX on DownloadStatus {
         return 'Fetching info';
       case DownloadStatus.downloading:
         return 'Downloading';
-      case DownloadStatus.converting:
-        return 'Converting to MP3';
       case DownloadStatus.completed:
         return 'Completed';
       case DownloadStatus.failed:
@@ -195,8 +213,7 @@ extension DownloadStatusX on DownloadStatus {
   bool get isActive =>
       this == DownloadStatus.queued ||
       this == DownloadStatus.fetchingInfo ||
-      this == DownloadStatus.downloading ||
-      this == DownloadStatus.converting;
+      this == DownloadStatus.downloading;
 
   Color get color {
     switch (this) {
@@ -206,8 +223,6 @@ extension DownloadStatusX on DownloadStatus {
         return const Color(0xFF42A5F5);
       case DownloadStatus.downloading:
         return const Color(0xFF6C63FF);
-      case DownloadStatus.converting:
-        return const Color(0xFF03DAC6);
       case DownloadStatus.completed:
         return const Color(0xFF4CAF50);
       case DownloadStatus.failed:
@@ -303,7 +318,7 @@ extension VideoQualityX on VideoQuality {
       case VideoQuality.sd360:
         return '360p';
       case VideoQuality.audioOnly:
-        return 'Audio Only (MP3)';
+        return 'Audio Only';
     }
   }
 }

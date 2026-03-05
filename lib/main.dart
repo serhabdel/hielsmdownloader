@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,70 +13,88 @@ import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final startupStopwatch = Stopwatch()..start();
-  debugPrint('[STARTUP] main() started');
+  // Global Flutter framework error handler (catches widget build errors etc.)
+  // Must be set before ensureInitialized so it covers the init phase too.
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('[FLUTTER_ERROR] ${details.exceptionAsString()}');
+  };
 
-  // Lock to portrait
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-  debugPrint('[STARTUP] setPreferredOrientations: ${startupStopwatch.elapsedMilliseconds}ms');
+  // runZonedGuarded catches unhandled async errors that escape the framework.
+  // ensureInitialized must be called INSIDE this zone so that runApp (which
+  // is also inside this zone) doesn't trigger a "zone mismatch" assertion.
+  await runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-  // Transparent status bar
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: AppTheme.surface,
-      systemNavigationBarIconBrightness: Brightness.light,
-    ),
-  );
-  debugPrint('[STARTUP] setSystemUIOverlayStyle: ${startupStopwatch.elapsedMilliseconds}ms');
+      final startupStopwatch = Stopwatch()..start();
+      debugPrint('[STARTUP] main() started');
 
-  // Load settings
-  final settings = SettingsProvider();
-  await settings.load();
-  debugPrint('[STARTUP] settings.load(): ${startupStopwatch.elapsedMilliseconds}ms');
+      // Lock to portrait
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+      debugPrint('[STARTUP] setPreferredOrientations: ${startupStopwatch.elapsedMilliseconds}ms');
 
-  // Init background services
-  ForegroundService.init();
-  debugPrint('[STARTUP] ForegroundService.init(): ${startupStopwatch.elapsedMilliseconds}ms');
-  
-  await NotificationService.init();
-  debugPrint('[STARTUP] NotificationService.init(): ${startupStopwatch.elapsedMilliseconds}ms');
-
-  debugPrint('[STARTUP] Total before runApp: ${startupStopwatch.elapsedMilliseconds}ms');
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider.value(value: settings),
-        ChangeNotifierProxyProvider<SettingsProvider, DownloadProvider>(
-          create: (ctx) {
-            final provider = DownloadProvider();
-            provider.init(ctx.read<SettingsProvider>());
-            return provider;
-          },
-          update: (ctx, settings, previous) {
-            previous?.init(settings);
-            return previous ?? DownloadProvider();
-          },
+      // Transparent status bar
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: AppTheme.surface,
+          systemNavigationBarIconBrightness: Brightness.light,
         ),
-      ],
-      child: const ReelsDownloaderApp(),
-    ),
+      );
+      debugPrint('[STARTUP] setSystemUIOverlayStyle: ${startupStopwatch.elapsedMilliseconds}ms');
+
+      // Load settings
+      final settings = SettingsProvider();
+      await settings.load();
+      debugPrint('[STARTUP] settings.load(): ${startupStopwatch.elapsedMilliseconds}ms');
+
+      // Init background services
+      ForegroundService.init();
+      debugPrint('[STARTUP] ForegroundService.init(): ${startupStopwatch.elapsedMilliseconds}ms');
+
+      await NotificationService.init();
+      debugPrint('[STARTUP] NotificationService.init(): ${startupStopwatch.elapsedMilliseconds}ms');
+
+      debugPrint('[STARTUP] Total before runApp: ${startupStopwatch.elapsedMilliseconds}ms');
+      runApp(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: settings),
+            ChangeNotifierProxyProvider<SettingsProvider, DownloadProvider>(
+              create: (ctx) {
+                final provider = DownloadProvider();
+                provider.init(ctx.read<SettingsProvider>());
+                return provider;
+              },
+              update: (ctx, settings, previous) {
+                previous?.init(settings);
+                return previous ?? DownloadProvider();
+              },
+            ),
+          ],
+          child: const HielSmdApp(),
+        ),
+      );
+    },
+    (error, stack) {
+      debugPrint('[ZONE_ERROR] $error\n$stack');
+    },
   );
 }
 
-class ReelsDownloaderApp extends StatefulWidget {
-  const ReelsDownloaderApp({super.key});
+class HielSmdApp extends StatefulWidget {
+  const HielSmdApp({super.key});
 
   @override
-  State<ReelsDownloaderApp> createState() => _ReelsDownloaderAppState();
+  State<HielSmdApp> createState() => _HielSmdAppState();
 }
 
-class _ReelsDownloaderAppState extends State<ReelsDownloaderApp> {
+class _HielSmdAppState extends State<HielSmdApp> {
   @override
   void initState() {
     super.initState();
@@ -88,7 +107,7 @@ class _ReelsDownloaderAppState extends State<ReelsDownloaderApp> {
     if (!Platform.isAndroid) return;
 
     // Android 11+ (API 30+): request MANAGE_EXTERNAL_STORAGE so we can
-    // write directly to /storage/emulated/0/Download/ReelsDownloader
+    // write directly to /storage/emulated/0/Download/HieLSmD
     final manageStatus = await Permission.manageExternalStorage.status;
     if (!manageStatus.isGranted) {
       await Permission.manageExternalStorage.request();

@@ -40,6 +40,7 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     signingConfigs {
@@ -55,12 +56,25 @@ android {
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
         release {
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
             }
+            // Minification must be enabled alongside shrinkResources (injected
+            // by the Flutter Gradle plugin).  proguard-rules.pro keeps Rhino,
+            // NewPipe, and OkHttp from being stripped.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
@@ -70,5 +84,15 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    // NIO-capable desugaring required for NewPipe Extractor on minSdk < 26
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
+    // NewPipe Extractor — properly deobfuscates YouTube n-parameter via Rhino JS
+    implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.0")
+
+    // OkHttp — used as the HTTP backend for NewPipe's Downloader interface
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Multidex — required because Rhino + NewPipe pushes method count > 64k
+    implementation("androidx.multidex:multidex:2.0.1")
 }

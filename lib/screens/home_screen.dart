@@ -119,8 +119,18 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
     if (result == null || !mounted) return;
+    HapticFeedback.mediumImpact();
     context.read<DownloadProvider>().addDownload(result.url, result.quality);
     setState(() => _currentTab = 1);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Download queued'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   void _onUrlChanged() {
@@ -181,65 +191,29 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildBottomBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        border: Border(
-          top: BorderSide(
-            color: Colors.white.withValues(alpha: 0.06),
-            width: 1,
-          ),
+    return NavigationBar(
+      selectedIndex: _currentTab,
+      onDestinationSelected: (index) {
+        HapticFeedback.selectionClick();
+        setState(() => _currentTab = index);
+      },
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.download_outlined),
+          selectedIcon: Icon(Icons.download_rounded),
+          label: 'Download',
         ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(0, Icons.download_rounded, Icons.download_outlined, 'Download'),
-              _buildNavItem(1, Icons.folder_rounded, Icons.folder_outlined, 'My Files'),
-              _buildNavItem(2, Icons.settings_rounded, Icons.settings_outlined, 'Settings'),
-            ],
-          ),
+        NavigationDestination(
+          icon: Icon(Icons.folder_outlined),
+          selectedIcon: Icon(Icons.folder_rounded),
+          label: 'My Files',
         ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(int index, IconData selectedIcon, IconData unselectedIcon, String label) {
-    final isSelected = _currentTab == index;
-    return GestureDetector(
-      onTap: () => setState(() => _currentTab = index),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primary.withValues(alpha: 0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+        NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings_rounded),
+          label: 'Settings',
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isSelected ? selectedIcon : unselectedIcon,
-              color: isSelected ? AppTheme.primary : Colors.white38,
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? AppTheme.primary : Colors.white38,
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
@@ -442,7 +416,10 @@ class _HomeScreenState extends State<HomeScreen>
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
-                  onTap: () => setState(() => _selectedQuality = q),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _selectedQuality = q);
+                  },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -577,9 +554,10 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  bool _tipsExpanded = true;
+
   Widget _buildQuickTips() {
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.surfaceVariant,
         borderRadius: BorderRadius.circular(14),
@@ -589,27 +567,54 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.lightbulb_outline_rounded, color: AppTheme.warning, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                'Tips',
-                style: TextStyle(
-                  color: AppTheme.warning,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+          InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _tipsExpanded = !_tipsExpanded);
+            },
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+              child: Row(
+                children: [
+                  const Icon(Icons.lightbulb_outline_rounded, color: AppTheme.warning, size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Tips',
+                    style: TextStyle(
+                      color: AppTheme.warning,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _tipsExpanded ? 0 : -0.25,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.expand_more_rounded, color: Colors.white38, size: 18),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 10),
-          _tip('Share a video from any app and tap "Share to HieL SmD"'),
-          _tip('YouTube: works with videos, shorts and playlists links'),
-          _tip('For Instagram/TikTok: use the "Copy Link" option in the app'),
-          _tip('Audio Only saves as .mp3 - convenient for music playback'),
+          AnimatedCrossFade(
+            firstChild: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _tip('Share a video from any app and tap "Share to HieL SmD"'),
+                  _tip('YouTube: works with videos and Shorts'),
+                  _tip('For Instagram/TikTok: use the "Copy Link" option in the app'),
+                  _tip('Audio Only saves as .mp3 - convenient for music playback'),
+                ],
+              ),
+            ),
+            secondChild: const SizedBox.shrink(),
+            crossFadeState: _tipsExpanded ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+            duration: const Duration(milliseconds: 200),
+          ),
         ],
       ),
     );
@@ -638,7 +643,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-// ─── Keep Alive Wrapper for Lazy Tab Building ─────────────────────────────────
+// ─── Keep Alive Wrapper for Tab Building ─────────────────────────────────────
 
 class _KeepAliveWrapper extends StatefulWidget {
   final Widget child;
@@ -650,26 +655,12 @@ class _KeepAliveWrapper extends StatefulWidget {
 
 class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
     with AutomaticKeepAliveClientMixin {
-  bool _hasBeenVisible = false;
-
   @override
-  bool get wantKeepAlive => _hasBeenVisible;
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    
-    // Only build the child after it's been shown once
-    // This defers building non-visible tabs at startup
-    if (!_hasBeenVisible) {
-      _hasBeenVisible = true;
-      // Defer the actual build to next frame to avoid jank
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() {});
-      });
-      return const SizedBox.expand(); // Placeholder while deferring
-    }
-    
     return widget.child;
   }
 }

@@ -22,12 +22,17 @@ class ForegroundService {
         channelName: 'Background Downloads',
         channelDescription:
             'Keeps downloads running when the app is in the background',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        // HIGH importance keeps the notification visible at all times and
+        // signals to Android that this is an active, user-visible workload.
+        // DEFAULT/LOW allowed aggressive process suspension on some OEMs.
+        channelImportance: NotificationChannelImportance.HIGH,
+        priority: NotificationPriority.HIGH,
       ),
       iosNotificationOptions: const IOSNotificationOptions(),
       foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.repeat(5000),
+        // Fire a keep-alive heartbeat every 3 s (shorter than 5 s) so the CPU
+        // wake lock is re-acquired more frequently while downloads are active.
+        eventAction: ForegroundTaskEventAction.repeat(3000),
         autoRunOnBoot: false,
         allowWakeLock: true,
         allowWifiLock: true,

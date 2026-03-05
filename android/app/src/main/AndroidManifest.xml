@@ -20,9 +20,15 @@
     <!-- Foreground service (keeps downloads alive in background) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
     <!-- Wake lock: prevent CPU from sleeping mid-download -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <!-- Allows the app to request exemption from battery optimizations so that
+         background downloads survive when the screen turns off or the user
+         switches to another app. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <!-- For managing downloads dir -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
@@ -66,11 +72,18 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- flutter_foreground_task: keeps downloads alive when app is backgrounded -->
+        <!-- flutter_foreground_task: keeps downloads alive when app is backgrounded.
+             specialUse is not time-limited on Android 14+, unlike dataSync which
+             has a 6-hour cap and is deprecated for non-sync workloads.
+             dataSync is kept as a fallback for Android < 14. -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="File download — the app downloads media files requested by the user and must keep the network connection alive while the screen is off or the app is in the background."/>
+        </service>
 
         <!-- FileProvider: required for share_plus to share files on Android 7+ (API 24+)
              share_plus uses content:// URIs; without this provider it will crash or silently fail. -->

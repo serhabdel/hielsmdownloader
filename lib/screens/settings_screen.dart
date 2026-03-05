@@ -26,7 +26,7 @@ class SettingsScreen extends StatelessWidget {
                 iconColor: AppTheme.warning,
                 title: 'Save Location',
                 subtitle: settings.downloadPath.isEmpty
-                    ? '/storage/emulated/0/Download/ReelsDownloader'
+                    ? '/storage/emulated/0/Download/HieLSmD'
                     : settings.downloadPath,
                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38),
                 onTap: () => _showPathDialog(ctx, settings),
@@ -85,7 +85,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.info_outline_rounded,
                 iconColor: Colors.white38,
                 title: 'Version',
-                subtitle: '1.0.2 — Built for personal use, no ads, no BS.',
+                subtitle: '1.0.5 — Built for personal use, no ads, no BS.',
               ),
               const SizedBox(height: 10),
 
@@ -265,7 +265,7 @@ class SettingsScreen extends StatelessWidget {
               controller: controller,
               style: const TextStyle(color: AppTheme.onBackground, fontSize: 13),
               decoration: const InputDecoration(
-                hintText: '/storage/emulated/0/Download/ReelsDownloader',
+                hintText: '/storage/emulated/0/Download/HieLSmD',
               ),
             ),
           ],

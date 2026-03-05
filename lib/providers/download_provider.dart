@@ -20,6 +20,9 @@ class DownloadProvider extends ChangeNotifier {
   int _activeCount = 0;
   bool _historyLoaded = false;
 
+  // Download speed tracking: downloadId → sliding window of recent samples
+  final Map<String, _SpeedTracker> _speedTrackers = {};
+
   List<DownloadItem> get items => List.unmodifiable(_items);
   List<DownloadItem> get activeItems =>
       _items.where((i) => i.status.isActive).toList();
@@ -86,10 +89,8 @@ class DownloadProvider extends ChangeNotifier {
   void _processDownload(DownloadItem item) async {
     final maxConcurrent = _settingsProvider?.concurrentDownloads ?? 2;
 
-    // Queue if too many active
     if (_activeCount >= maxConcurrent) {
       _updateItem(item.id, item.copyWith(status: DownloadStatus.queued));
-      // Will be picked up when another download finishes
       return;
     }
 
@@ -102,24 +103,20 @@ class DownloadProvider extends ChangeNotifier {
     final cancelToken = CancelToken();
     _cancelTokens[item.id] = cancelToken;
 
-    // Show an indeterminate "fetching info" notification immediately
-    await NotificationService.showProgress(
-      downloadId: item.id,
-      title: item.title,
-      progress: -1,
-      receivedBytes: 0,
-      totalBytes: 0,
-    );
-
-    // Start the Android foreground service so the download survives backgrounding
-    await ForegroundService.start(text: 'Downloading "${item.title}"');
+    final setupResults = await Future.wait([
+      NotificationService.showProgress(
+        downloadId: item.id,
+        title: item.title,
+        progress: -1,
+        receivedBytes: 0,
+        totalBytes: 0,
+      ),
+      ForegroundService.start(text: 'Downloading "${item.title}"'),
+      DownloadService.getDownloadsDir(_settingsProvider?.downloadPath),
+    ]);
+    final savePath = setupResults[2] as String;
 
     try {
-      final savePath = await DownloadService.getDownloadsDir(
-        _settingsProvider?.downloadPath,
-      );
-
-      // Step 1: fetch info
       _updateItem(item.id, item.copyWith(status: DownloadStatus.fetchingInfo));
 
       if (item.platform == SupportedPlatform.youtube) {
@@ -128,7 +125,6 @@ class DownloadProvider extends ChangeNotifier {
         await _downloadSocialMedia(item, savePath, cancelToken);
       }
 
-      // Completion notification
       final finished = _getItem(item.id);
       if (finished != null && finished.status == DownloadStatus.completed) {
         await NotificationService.showCompleted(
@@ -142,20 +138,23 @@ class DownloadProvider extends ChangeNotifier {
       if (CancelToken.isCancel(e)) {
         final current = _getItem(item.id);
         if (current != null) {
-          _updateItem(item.id, current.copyWith(
-            status: DownloadStatus.cancelled,
-            errorMessage: 'Download cancelled',
-          ));
+          _updateItem(
+            item.id,
+            current.copyWith(
+              status: DownloadStatus.cancelled,
+              errorMessage: 'Download cancelled',
+            ),
+          );
         }
         await NotificationService.cancel(item.id);
       } else {
-        final msg = e.message ?? 'Network error';
+        final msg = _friendlyDioError(e);
         final current = _getItem(item.id);
         if (current != null) {
-          _updateItem(item.id, current.copyWith(
-            status: DownloadStatus.failed,
-            errorMessage: msg,
-          ));
+          _updateItem(
+            item.id,
+            current.copyWith(status: DownloadStatus.failed, errorMessage: msg),
+          );
         }
         await NotificationService.showFailed(
           downloadId: item.id,
@@ -167,10 +166,10 @@ class DownloadProvider extends ChangeNotifier {
       final msg = e.toString().replaceAll('Exception: ', '');
       final current = _getItem(item.id);
       if (current != null) {
-        _updateItem(item.id, current.copyWith(
-          status: DownloadStatus.failed,
-          errorMessage: msg,
-        ));
+        _updateItem(
+          item.id,
+          current.copyWith(status: DownloadStatus.failed, errorMessage: msg),
+        );
       }
       await NotificationService.showFailed(
         downloadId: item.id,
@@ -181,18 +180,45 @@ class DownloadProvider extends ChangeNotifier {
       _cancelTokens.remove(item.id);
       _activeDownloads.remove(item.id);
       _lastNotificationUpdateById.remove(item.id);
+      _lastUiUpdateById.remove(item.id);
+      _speedTrackers.remove(item.id);
       _activeCount = (_activeCount - 1).clamp(0, 999);
       _processQueuedItems();
-      // Stop foreground service when no more active downloads
       if (_activeCount == 0) {
         await ForegroundService.stop();
       }
     }
   }
 
-  // Throttling for notification updates to prevent main thread blocking
+  // ─── Human-friendly error messages ─────────────────────────────────────────
+
+  String _friendlyDioError(DioException e) {
+    final status = e.response?.statusCode;
+    if (status == 403) {
+      return 'Access denied (403) — the video may be private or age-restricted.';
+    }
+    if (status == 404) {
+      return 'Video not found (404) — the URL may be invalid or the video deleted.';
+    }
+    if (status != null) {
+      return 'HTTP error $status — please retry.';
+    }
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'Connection timed out. Check your internet and retry.';
+      case DioExceptionType.connectionError:
+        return 'No internet connection. Please check your network.';
+      default:
+        return e.message ?? 'Network error — please retry.';
+    }
+  }
+
+  // ─── Notification throttling ───────────────────────────────────────────────
+
   final Map<String, DateTime> _lastNotificationUpdateById = {};
-  static const _notificationThrottleMs = 500; // Update at most every 500ms
+  static const _notificationThrottleMs = 500;
 
   bool _shouldUpdateNotification(String downloadId) {
     final now = DateTime.now();
@@ -205,58 +231,98 @@ class DownloadProvider extends ChangeNotifier {
     return false;
   }
 
+  // ─── UI-update throttling ─────────────────────────────────────────────────
+
+  final Map<String, DateTime> _lastUiUpdateById = {};
+  static const _uiThrottleMs = 200;
+
+  bool _shouldUpdateUi(String downloadId) {
+    final now = DateTime.now();
+    final last = _lastUiUpdateById[downloadId];
+    if (last == null ||
+        now.difference(last).inMilliseconds > _uiThrottleMs) {
+      _lastUiUpdateById[downloadId] = now;
+      return true;
+    }
+    return false;
+  }
+
+  // ─── Download speed calculation ────────────────────────────────────────────
+
+  /// Returns smoothed download speed in bytes/s using a sliding window.
+  /// Automatically discards stale samples (e.g. after a resume gap).
+  int? _calculateSpeed(String downloadId, int receivedBytes) {
+    final tracker = _speedTrackers.putIfAbsent(
+      downloadId,
+      () => _SpeedTracker(),
+    );
+    return tracker.addSample(receivedBytes);
+  }
+
+  // ─── YouTube download ───────────────────────────────────────────────────────
+
   Future<void> _downloadYoutube(
     DownloadItem item,
     String savePath,
     CancelToken cancelToken,
   ) async {
-    debugPrint('[DOWNLOAD] _downloadYoutube started for ${item.url}');
-    final stopwatch = Stopwatch()..start();
-    
-    // Fetch info (also resolves the stream manifest once up-front).
+    debugPrint('[DOWNLOAD] _downloadYoutube for ${item.url}');
+
     VideoInfo? info;
     try {
-      debugPrint('[DOWNLOAD] Fetching YouTube info...');
       info = await DownloadService.fetchYoutubeInfo(item.url);
-      debugPrint('[DOWNLOAD] Got info: ${info.title}, streams: ${info.streams.length} (${stopwatch.elapsedMilliseconds}ms)');
       final current = _getItem(item.id);
       if (current != null) {
-        _updateItem(item.id, current.copyWith(
-          title: info.title,
-          thumbnailUrl: info.thumbnailUrl,
-          duration: info.duration,
-          author: info.author,
-          status: DownloadStatus.downloading,
-        ));
+        _updateItem(
+          item.id,
+          current.copyWith(
+            title: info.title,
+            thumbnailUrl: info.thumbnailUrl,
+            duration: info.duration,
+            author: info.author,
+            status: DownloadStatus.downloading,
+          ),
+        );
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[DOWNLOAD] fetchYoutubeInfo failed: $e — continuing without metadata');
       final current = _getItem(item.id);
       if (current != null) {
-        _updateItem(item.id, current.copyWith(
-          status: DownloadStatus.downloading,
-        ));
+        _updateItem(item.id, current.copyWith(status: DownloadStatus.downloading));
       }
     }
 
-    // Reuse the stream info that was already resolved during fetchYoutubeInfo so
-    // we don't need to fetch the manifest a second time inside downloadYoutube.
-    final preResolved = item.quality == VideoQuality.audioOnly
-      ? null
-      : info?.streams
-        .where((s) => !s.isAudioOnly)
+    // Reuse the stream resolved during fetchYoutubeInfo to avoid a double manifest fetch.
+    final preResolved = info?.streams
+        .where((s) => item.quality == VideoQuality.audioOnly
+            ? s.isAudioOnly
+            : !s.isAudioOnly)
         .map((s) => s.streamInfo)
         .where((si) => si != null)
         .firstOrNull;
+
+    // Stable filename based on item.id — ensures every retry for the same item
+    // writes to the same path so HTTP Range resume can pick up where it left off.
+    final stableFileName = 'dl_${item.id.replaceAll('-', '').substring(0, 16)}';
 
     void reportProgress(double progress, int received, int total) {
       final current = _getItem(item.id);
       if (current == null) return;
 
-      _updateItem(item.id, current.copyWith(
+      final speedBps = _calculateSpeed(item.id, received);
+
+      final updated = current.copyWith(
         progress: progress,
         downloadedBytes: received,
         fileSizeBytes: total > 0 ? total : null,
-      ));
+        speedBytesPerSec: speedBps,
+      );
+
+      if (_shouldUpdateUi(item.id)) {
+        _updateItem(item.id, updated);
+      } else {
+        _updateItemSilent(item.id, updated);
+      }
 
       if (_shouldUpdateNotification(item.id)) {
         final pct = (progress * 100).toInt();
@@ -271,79 +337,69 @@ class DownloadProvider extends ChangeNotifier {
       }
     }
 
+    void onPartialPathKnown(String path) {
+      final current = _getItem(item.id);
+      if (current != null && current.partialFilePath != path) {
+        _updateItemDirect(item.id, current.copyWith(partialFilePath: path));
+      }
+    }
+
+    // First attempt with pre-resolved stream.
     String savedPath;
     try {
-      debugPrint('[DOWNLOAD] Starting actual download with preResolvedStream: ${preResolved != null}');
       savedPath = await DownloadService.downloadYoutube(
         url: item.url,
         quality: item.quality,
         savePath: savePath,
         cancelToken: cancelToken,
         preResolvedStream: preResolved,
-        onConverting: () {
-          final current = _getItem(item.id);
-          if (current == null) return;
-          _updateItem(item.id, current.copyWith(
-            status: DownloadStatus.converting,
-          ));
-          NotificationService.showProgress(
-            downloadId: item.id,
-            title: '${current.title} — Converting to MP3',
-            progress: -1,
-            receivedBytes: current.downloadedBytes ?? 0,
-            totalBytes: current.fileSizeBytes ?? 0,
-          );
-          ForegroundService.update('${current.title} — Converting to MP3');
-        },
+        preResolvedTitle: info?.title,
+        suggestedFileName: stableFileName,
+        onPartialPathKnown: onPartialPathKnown,
         onProgress: reportProgress,
       );
-      debugPrint('[DOWNLOAD] Download completed: $savedPath (${stopwatch.elapsedMilliseconds}ms total)');
     } catch (e) {
-      // Do not retry if the user cancelled.
       if (cancelToken.isCancelled) rethrow;
-      // One retry with a fresh manifest fetch (no pre-resolved stream) in case
-      // the CDN URL expired between info-fetch and download start.
+
+      // Reset client to clear stale cached player JS then retry once more.
+      debugPrint('[DOWNLOAD] First attempt failed: $e — resetting client and retrying...');
+      DownloadService.resetYoutubeClient();
       await Future.delayed(const Duration(seconds: 2));
+
       savedPath = await DownloadService.downloadYoutube(
         url: item.url,
         quality: item.quality,
         savePath: savePath,
         cancelToken: cancelToken,
-        onConverting: () {
-          final current = _getItem(item.id);
-          if (current == null) return;
-          _updateItem(item.id, current.copyWith(
-            status: DownloadStatus.converting,
-          ));
-          NotificationService.showProgress(
-            downloadId: item.id,
-            title: '${current.title} — Converting to MP3',
-            progress: -1,
-            receivedBytes: current.downloadedBytes ?? 0,
-            totalBytes: current.fileSizeBytes ?? 0,
-          );
-          ForegroundService.update('${current.title} — Converting to MP3');
-        },
+        // No pre-resolved stream on retry — fetch fresh
+        suggestedFileName: stableFileName,
+        onPartialPathKnown: onPartialPathKnown,
         onProgress: reportProgress,
       );
     }
 
     final current = _getItem(item.id);
     if (current != null && current.status != DownloadStatus.cancelled) {
-      _updateItem(item.id, current.copyWith(
-        status: DownloadStatus.completed,
-        progress: 1.0,
-        filePath: savedPath,
-      ));
+      _updateItem(
+        item.id,
+        current.copyWith(
+          status: DownloadStatus.completed,
+          progress: 1.0,
+          filePath: savedPath,
+          partialFilePath: null,  // clear partial on success
+          speedBytesPerSec: null,
+        ),
+      );
     }
   }
+
+  // ─── Social media download ─────────────────────────────────────────────────
 
   Future<void> _downloadSocialMedia(
     DownloadItem item,
     String savePath,
     CancelToken cancelToken,
   ) async {
-    // Use direct_link package to extract the real download URL
     final info = await DownloadService.resolveSocialUrl(item.url);
 
     if (info == null) {
@@ -353,62 +409,79 @@ class DownloadProvider extends ChangeNotifier {
       );
     }
 
-    // Update title/thumbnail from the extracted info
-    if (info.title.isNotEmpty || info.thumbnailUrl != null) {
-      final current = _getItem(item.id);
-      if (current != null) {
-        _updateItem(item.id, current.copyWith(
-          title: info.title.isNotEmpty ? info.title : item.platform.displayName,
+    final resolvedTitle =
+        info.title.isNotEmpty ? info.title : item.platform.displayName;
+    final current = _getItem(item.id);
+    if (current != null) {
+      _updateItem(
+        item.id,
+        current.copyWith(
+          title: resolvedTitle,
           thumbnailUrl: info.thumbnailUrl,
           status: DownloadStatus.downloading,
-        ));
-      }
-    } else {
-      final current = _getItem(item.id);
-      if (current != null) {
-        _updateItem(item.id, current.copyWith(
-          status: DownloadStatus.downloading,
-        ));
-      }
+        ),
+      );
     }
 
     final savedPath = await DownloadService.downloadViaHttp(
       directUrl: info.directUrl,
-      title: info.title.isNotEmpty ? info.title : item.platform.displayName,
+      title: resolvedTitle,
       savePath: savePath,
       audioOnly: item.quality == VideoQuality.audioOnly,
       cancelToken: cancelToken,
+      // Stable filename so retries resume the same partial file
+      suggestedFileName: 'dl_${item.id.replaceAll('-', '').substring(0, 16)}',
+      onPartialPathKnown: (path) {
+        final cur = _getItem(item.id);
+        if (cur != null && cur.partialFilePath != path) {
+          _updateItemDirect(item.id, cur.copyWith(partialFilePath: path));
+        }
+      },
       onProgress: (progress, received, total) {
-        final current = _getItem(item.id);
-        if (current == null) return;
-        _updateItem(item.id, current.copyWith(
+        final cur = _getItem(item.id);
+        if (cur == null) return;
+        final speedBps = _calculateSpeed(item.id, received);
+        final updated = cur.copyWith(
           progress: progress,
           downloadedBytes: received,
           fileSizeBytes: total > 0 ? total : null,
-        ));
+          speedBytesPerSec: speedBps,
+        );
+        if (_shouldUpdateUi(item.id)) {
+          _updateItem(item.id, updated);
+        } else {
+          _updateItemSilent(item.id, updated);
+        }
         if (_shouldUpdateNotification(item.id)) {
           final pct = (progress * 100).toInt();
           NotificationService.showProgress(
             downloadId: item.id,
-            title: current.title,
+            title: cur.title,
             progress: pct,
             receivedBytes: received,
             totalBytes: total,
           );
-          ForegroundService.update('${current.title} — $pct%');
+          ForegroundService.update('${cur.title} — $pct%');
         }
       },
     );
 
-    final current = _getItem(item.id);
-    if (current != null && current.status != DownloadStatus.cancelled) {
-      _updateItem(item.id, current.copyWith(
-        status: DownloadStatus.completed,
-        progress: 1.0,
-        filePath: savedPath,
-      ));
+    final cur = _getItem(item.id);
+    if (cur != null && cur.status != DownloadStatus.cancelled) {
+      _updateItem(
+        item.id,
+        cur.copyWith(
+          status: DownloadStatus.completed,
+          progress: 1.0,
+          filePath: savedPath,
+          partialFilePath: null,  // clear partial on success
+          speedBytesPerSec: null,
+        ),
+      );
     }
   }
+
+  // ─── Queue management ──────────────────────────────────────────────────────
 
   void _processQueuedItems() {
     final maxConcurrent = _settingsProvider?.concurrentDownloads ?? 2;
@@ -424,33 +497,48 @@ class DownloadProvider extends ChangeNotifier {
     _startDownload(next);
   }
 
+  // ─── Public actions ────────────────────────────────────────────────────────
+
   void cancelDownload(String id) {
     _cancelTokens[id]?.cancel('User cancelled');
     final item = _getItem(id);
     if (item != null) {
-      _updateItem(id, item.copyWith(
-        status: DownloadStatus.cancelled,
-        errorMessage: 'Cancelled by user',
-      ));
+      _updateItem(
+        id,
+        item.copyWith(
+          status: DownloadStatus.cancelled,
+          errorMessage: 'Cancelled by user',
+        ),
+      );
     }
   }
 
   void retryDownload(String id) {
     final item = _getItem(id);
     if (item == null) return;
+    // Preserve partialFilePath so the download service can resume from the
+    // existing partial file using an HTTP Range request.
     final reset = DownloadItem(
       id: item.id,
       url: item.url,
-      title: 'Retrying...',
+      title: item.title.isNotEmpty && item.title != 'Fetching info...'
+          ? item.title   // keep the known title so the card still looks right
+          : 'Retrying...',
+      thumbnailUrl: item.thumbnailUrl,
+      duration: item.duration,
+      author: item.author,
       platform: item.platform,
       quality: item.quality,
       status: DownloadStatus.fetchingInfo,
+      partialFilePath: item.partialFilePath,  // <-- carry forward for resume
     );
     _updateItemDirect(id, reset);
     _processDownload(reset);
   }
 
   void removeDownload(String id) {
+    // Dismiss any lingering notification (completed / failed / progress)
+    NotificationService.cancel(id);
     cancelDownload(id);
     _items.removeWhere((i) => i.id == id);
     notifyListeners();
@@ -458,6 +546,14 @@ class DownloadProvider extends ChangeNotifier {
   }
 
   void clearCompleted() {
+    // Dismiss notifications for every item about to be removed
+    for (final item in _items) {
+      if (item.status == DownloadStatus.completed ||
+          item.status == DownloadStatus.cancelled ||
+          item.status == DownloadStatus.failed) {
+        NotificationService.cancel(item.id);
+      }
+    }
     _items.removeWhere((i) =>
         i.status == DownloadStatus.completed ||
         i.status == DownloadStatus.cancelled ||
@@ -465,6 +561,8 @@ class DownloadProvider extends ChangeNotifier {
     notifyListeners();
     _saveHistory();
   }
+
+  // ─── Internal helpers ──────────────────────────────────────────────────────
 
   DownloadItem? _getItem(String id) {
     try {
@@ -479,7 +577,6 @@ class DownloadProvider extends ChangeNotifier {
     if (index != -1) {
       _items[index] = updated;
       notifyListeners();
-      // Persist whenever a download reaches a terminal state
       if (!updated.status.isActive) {
         _saveHistory();
       }
@@ -493,4 +590,72 @@ class DownloadProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Updates the item in the list WITHOUT calling notifyListeners().
+  /// Used for throttled-out progress updates to keep internal state fresh.
+  void _updateItemSilent(String id, DownloadItem updated) {
+    final index = _items.indexWhere((i) => i.id == id);
+    if (index != -1) {
+      _items[index] = updated;
+    }
+  }
+}
+
+/// Sliding-window speed tracker.
+///
+/// Keeps the last [_windowMs] milliseconds of (bytes, timestamp) samples and
+/// returns an averaged speed, which is much smoother than a two-point
+/// instantaneous calculation.  Stale samples (gap > 3 s) are automatically
+/// discarded so that resume pauses don't pollute the result.
+class _SpeedTracker {
+  static const int _windowMs = 3000; // 3-second sliding window
+  static const int _staleMs = 3000; // discard samples older than this gap
+  static const int _minIntervalMs = 200; // ignore samples closer than this
+
+  final _samples = <_SpeedSample>[];
+
+  /// Add a new received-bytes sample and return the smoothed speed (bytes/s),
+  /// or `null` if there aren't enough data points yet.
+  int? addSample(int receivedBytes) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // If the last sample is too old (e.g. download was paused/resumed),
+    // discard the entire history so we start fresh.
+    if (_samples.isNotEmpty && (now - _samples.last.ts) > _staleMs) {
+      _samples.clear();
+    }
+
+    // Throttle: skip if too close to the last sample
+    if (_samples.isNotEmpty && (now - _samples.last.ts) < _minIntervalMs) {
+      // Return the last known speed
+      return _lastSpeed;
+    }
+
+    _samples.add(_SpeedSample(receivedBytes, now));
+
+    // Trim samples outside the window
+    final cutoff = now - _windowMs;
+    _samples.removeWhere((s) => s.ts < cutoff);
+
+    if (_samples.length < 2) return null;
+
+    final oldest = _samples.first;
+    final newest = _samples.last;
+    final elapsedMs = newest.ts - oldest.ts;
+    if (elapsedMs <= 0) return null;
+
+    final bytesDelta = newest.bytes - oldest.bytes;
+    if (bytesDelta <= 0) return null;
+
+    _lastSpeed = (bytesDelta * 1000 / elapsedMs).round();
+    return _lastSpeed;
+  }
+
+  int? _lastSpeed;
+}
+
+class _SpeedSample {
+  final int bytes;
+  final int ts; // millisecondsSinceEpoch
+  const _SpeedSample(this.bytes, this.ts);
 }
