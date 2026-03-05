@@ -31,19 +31,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build split APKs (ARM only)
-        run: |
-          flutter build apk --release \
-            --split-per-abi \
-            --target-platform android-arm,android-arm64
+      - name: Build universal APK
+        run: flutter build apk --release
 
-      - name: Rename APKs
+      - name: Rename APK
         run: |
           VERSION=${GITHUB_REF_NAME}
-          mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
-           build/app/outputs/flutter-apk/HieLSmD-${VERSION}-v7.apk
-          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-           build/app/outputs/flutter-apk/HieLSmD-${VERSION}-v8.apk
+          mv build/app/outputs/flutter-apk/app-release.apk \
+           build/app/outputs/flutter-apk/HieLSmD-${VERSION}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -52,20 +47,13 @@ jobs:
           body: |
             ## HieL SmD ${{ github.ref_name }}
 
-            **Tags:** `android`, `apk`, `armv7`, `arm64-v8`
-
             ### Install
-            Choose the APK that matches your device CPU:
-
-            - **HieLSmD-${{ github.ref_name }}-v8.apk** → ARM64 devices (most modern phones)
-            - **HieLSmD-${{ github.ref_name }}-v7.apk** → ARMv7 32-bit devices (older phones)
-
+            Download **HieLSmD-${{ github.ref_name }}.apk** and install it on your Android device.
             You may need to allow installation from unknown sources.
 
             ### Changes
             See [commits](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for what changed in this release.
           files: |
-            build/app/outputs/flutter-apk/HieLSmD-${{ github.ref_name }}-v8.apk
-            build/app/outputs/flutter-apk/HieLSmD-${{ github.ref_name }}-v7.apk
+            build/app/outputs/flutter-apk/HieLSmD-${{ github.ref_name }}.apk
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
