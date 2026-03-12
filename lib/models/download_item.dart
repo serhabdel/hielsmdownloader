@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 enum DownloadStatus {
   queued,
@@ -280,24 +281,26 @@ extension SupportedPlatformX on SupportedPlatform {
     }
   }
 
-  IconData get icon {
+  /// Returns either [FaIconData] (brand icons) or [IconData] (Material fallback).
+  /// Use [PlatformIcon] widget to render — it handles both types correctly.
+  Object get icon {
     switch (this) {
       case SupportedPlatform.youtube:
-        return Icons.play_circle_filled;
+        return FontAwesomeIcons.youtube;
       case SupportedPlatform.instagram:
-        return Icons.camera_alt;
+        return FontAwesomeIcons.instagram;
       case SupportedPlatform.tiktok:
-        return Icons.music_note;
+        return FontAwesomeIcons.tiktok;
       case SupportedPlatform.twitter:
-        return Icons.flutter_dash;
+        return FontAwesomeIcons.xTwitter;
       case SupportedPlatform.facebook:
-        return Icons.facebook;
+        return FontAwesomeIcons.facebook;
       case SupportedPlatform.reddit:
-        return Icons.reddit;
+        return FontAwesomeIcons.reddit;
       case SupportedPlatform.pinterest:
-        return Icons.push_pin;
+        return FontAwesomeIcons.pinterest;
       case SupportedPlatform.vimeo:
-        return Icons.videocam;
+        return FontAwesomeIcons.vimeo;
       case SupportedPlatform.generic:
         return Icons.video_file;
     }

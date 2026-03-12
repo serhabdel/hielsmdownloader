@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../utils/format_bytes.dart';
 
 /// Manages per-download progress notifications in the Android status bar.
 ///
@@ -64,8 +65,8 @@ class NotificationService {
     await init();
 
     final body = totalBytes > 0
-        ? '${_formatBytes(receivedBytes)} / ${_formatBytes(totalBytes)}'
-        : _formatBytes(receivedBytes);
+        ? '${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}'
+        : formatBytes(receivedBytes);
 
     final details = AndroidNotificationDetails(
       _channelId,
@@ -154,14 +155,5 @@ class NotificationService {
   static Future<void> cancel(String downloadId) async {
     if (!Platform.isAndroid) return;
     await _plugin.cancel(_idFor(downloadId));
-  }
-
-  static String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 }

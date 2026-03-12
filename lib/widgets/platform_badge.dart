@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/download_item.dart';
+import 'platform_icon.dart';
 
 class PlatformBadge extends StatelessWidget {
   final SupportedPlatform platform;
@@ -26,11 +27,7 @@ class PlatformBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            platform.icon,
-            color: platform.color,
-            size: 14,
-          ),
+          PlatformIcon(platform: platform, size: 14),
           if (showLabel) ...[
             const SizedBox(width: 5),
             Text(

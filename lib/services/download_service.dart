@@ -41,6 +41,21 @@ Future<Map<String, dynamic>> _getNativeAudioStreamUrl(String videoUrl) async {
   return result;
 }
 
+/// Calls the native yt-dlp binary (bundled in assets) to extract a direct
+/// video URL for Twitter/X and other platforms not handled by NewPipe.
+///
+/// Returns a map with keys: directUrl, title, thumbnailUrl (nullable).
+/// Throws [PlatformException] on extraction failure.
+Future<Map<String, dynamic>> _getNativeSocialVideoUrl(String videoUrl) async {
+  const channel = MethodChannel('com.hieltech.smdownloader/social_video');
+  final result = await channel.invokeMapMethod<String, dynamic>(
+    'getVideoUrl',
+    {'url': videoUrl},
+  );
+  if (result == null) throw Exception('Native social channel returned null.');
+  return result;
+}
+
 /// Detects which platform a URL belongs to.
 SupportedPlatform detectPlatform(String url) {
   final lower = url.toLowerCase();
@@ -895,6 +910,29 @@ class DownloadService {
   static final _directLink = DirectLink();
 
   static Future<SocialMediaInfo?> resolveSocialUrl(String url) async {
+    final platform = detectPlatform(url);
+
+    // ── Twitter/X: use native yt-dlp binary (most reliable) ──────────────────
+    if (platform == SupportedPlatform.twitter) {
+      try {
+        debugPrint('[SOCIAL] Trying native yt-dlp for Twitter/X: $url');
+        final info = await _getNativeSocialVideoUrl(url)
+            .timeout(const Duration(seconds: 60));
+        final directUrl = info['directUrl'] as String?;
+        if (directUrl != null && directUrl.isNotEmpty) {
+          debugPrint('[SOCIAL] yt-dlp succeeded for Twitter/X');
+          return SocialMediaInfo(
+            directUrl: directUrl,
+            title: info['title'] as String? ?? 'Twitter/X Video',
+            thumbnailUrl: info['thumbnailUrl'] as String?,
+          );
+        }
+      } catch (e) {
+        debugPrint('[SOCIAL] yt-dlp failed for Twitter/X: $e — falling back to direct_link');
+      }
+    }
+
+    // ── All other platforms (+ Twitter/X fallback): savefrom.net via direct_link ──
     try {
       final data = await _directLink.check(url);
       if (data == null || data.links == null || data.links!.isEmpty) {

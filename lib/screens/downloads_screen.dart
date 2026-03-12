@@ -6,7 +6,9 @@ import 'package:share_plus/share_plus.dart';
 import '../models/download_item.dart';
 import '../providers/download_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_bytes.dart';
 import '../widgets/platform_badge.dart';
+import '../widgets/platform_icon.dart';
 
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
@@ -354,15 +356,14 @@ class _DownloadsScreenState extends State<DownloadsScreen>
                         width: 52,
                         height: 36,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Icon(
-                          item.platform.icon,
-                          color: item.platform.color,
+                        errorBuilder: (context, error, stack) => PlatformIcon(
+                          platform: item.platform,
                           size: 20,
                         ),
                       ),
                     )
                   else
-                    Icon(item.platform.icon, color: item.platform.color, size: 24),
+                    PlatformIcon(platform: item.platform, size: 24),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -616,7 +617,7 @@ class _DownloadCard extends StatelessWidget {
             ? Image.network(
                 item.thumbnailUrl!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _platformIcon(),
+                errorBuilder: (context, error, stack) => _platformIcon(),
               )
             : _platformIcon(),
       ),
@@ -625,11 +626,7 @@ class _DownloadCard extends StatelessWidget {
 
   Widget _platformIcon() {
     return Center(
-      child: Icon(
-        item.platform.icon,
-        color: item.platform.color,
-        size: 24,
-      ),
+      child: PlatformIcon(platform: item.platform, size: 24),
     );
   }
 
@@ -692,7 +689,7 @@ class _DownloadCard extends StatelessWidget {
               ),
               if (item.fileSizeBytes != null && item.fileSizeBytes! > 0)
                 Text(
-                  _fmtBytes(item.fileSizeBytes!),
+                  formatBytes(item.fileSizeBytes!),
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.28),
                     fontSize: 10,
@@ -713,7 +710,7 @@ class _DownloadCard extends StatelessWidget {
             runSpacing: 4,
             children: [
               Text(
-                '${_fmtBytes(item.downloadedBytes ?? 0)} / ${_fmtBytes(item.fileSizeBytes!)}',
+                '${formatBytes(item.downloadedBytes ?? 0)} / ${formatBytes(item.fileSizeBytes!)}',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.35),
                   fontSize: 11,
@@ -722,7 +719,7 @@ class _DownloadCard extends StatelessWidget {
               if (item.speedBytesPerSec != null &&
                   item.speedBytesPerSec! > 0)
                 Text(
-                  '${_fmtBytes(item.speedBytesPerSec!)}/s',
+                  '${formatBytes(item.speedBytesPerSec!)}/s',
                   style: const TextStyle(
                     color: AppTheme.primary,
                     fontSize: 11,
@@ -746,7 +743,7 @@ class _DownloadCard extends StatelessWidget {
               Flexible(
                 child: Text(
                   item.downloadedBytes != null && item.downloadedBytes! > 0
-                      ? '${_fmtBytes(item.downloadedBytes!)} saved — resumable'
+                      ? '${formatBytes(item.downloadedBytes!)} saved — resumable'
                       : 'Partial file saved — resumable',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -965,15 +962,6 @@ class _DownloadCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _fmtBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 }
 

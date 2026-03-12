@@ -97,8 +97,9 @@ class OkHttpDownloader private constructor(private val client: OkHttpClient) : D
 
 class MainActivity : FlutterActivity() {
     companion object {
-        private const val MEDIA_SCANNER_CHANNEL = "com.hieltech.smdownloader/media_scanner"
+        private const val MEDIA_SCANNER_CHANNEL  = "com.hieltech.smdownloader/media_scanner"
         private const val YOUTUBE_AUDIO_CHANNEL  = "com.hieltech.smdownloader/youtube_audio"
+        private const val SOCIAL_VIDEO_CHANNEL   = "com.hieltech.smdownloader/social_video"
 
         // Single-thread executor so NewPipe calls never block the UI thread
         private val bgExecutor = Executors.newCachedThreadPool()
@@ -120,6 +121,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         setupMediaScannerChannel(flutterEngine)
         setupYoutubeAudioChannel(flutterEngine)
+        setupSocialVideoChannel(flutterEngine)
     }
 
     // ── Media Scanner channel (unchanged) ────────────────────────────────────
@@ -355,5 +357,126 @@ class MainActivity : FlutterActivity() {
         }
 
         return url
+    }
+
+    // ── Social Video channel (Twitter/X + generic fallback via yt-dlp) ────────
+    //
+    // Method: getVideoUrl(url: String) -> Map<String, Any?>
+    //   Returns: { "directUrl": String, "title": String, "thumbnailUrl": String? }
+    //   On failure throws PlatformException with code "EXTRACTION_FAILED"
+    //
+    // yt-dlp is shipped as a self-contained Python-in-binary ARM64/ARMv7 executable
+    // bundled in assets/ytdlp/. On first call it is copied to the app's private
+    // files dir and chmod +x'd. Subsequent calls reuse the cached binary.
+
+    private var ytDlpPath: String? = null
+
+    private fun ensureYtDlp(): String {
+        ytDlpPath?.let { if (java.io.File(it).exists()) return it }
+
+        val arch = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: ""
+        // Only arm64-v8a has a self-contained yt-dlp binary.
+        // Other arches throw so the Dart side falls back to direct_link.
+        if (!arch.startsWith("arm64")) {
+            throw UnsupportedOperationException(
+                "yt-dlp native extraction is only supported on arm64 devices (detected: $arch). " +
+                "Falling back to direct_link."
+            )
+        }
+
+        val destFile = java.io.File(filesDir, "yt-dlp")
+        if (!destFile.exists()) {
+            assets.open("ytdlp/yt-dlp_arm64").use { input ->
+                destFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            destFile.setExecutable(true, false)
+            android.util.Log.d("YtDlp", "yt-dlp extracted to ${destFile.absolutePath}")
+        }
+        ytDlpPath = destFile.absolutePath
+        return destFile.absolutePath
+    }
+
+    private fun extractSocialVideoUrl(url: String): Map<String, Any?> {
+        val binary = ensureYtDlp()
+
+        // --get-url  → print best direct video URL
+        // --get-title → print video title
+        // -f bestvideo+bestaudio/best → best available quality
+        // --no-playlist → single video only
+        val process = ProcessBuilder(
+            binary,
+            "--no-playlist",
+            "--print", "%(title)s",
+            "--print", "%(thumbnail)s",
+            "--print", "%(url)s",
+            "-f", "bestvideo+bestaudio/best",
+            "--no-warnings",
+            "--quiet",
+            url,
+        )
+            .redirectErrorStream(true)
+            .start()
+
+        val output = process.inputStream.bufferedReader().readText().trim()
+        val exitCode = process.waitFor()
+
+        android.util.Log.d("YtDlp", "exit=$exitCode output=$output")
+
+        if (exitCode != 0) {
+            throw Exception("yt-dlp exited with code $exitCode: $output")
+        }
+
+        val lines = output.lines().filter { it.isNotBlank() }
+        if (lines.size < 3) {
+            throw Exception("yt-dlp returned unexpected output: $output")
+        }
+
+        // --print outputs in declaration order: title, thumbnail, url
+        val title        = lines[0]
+        val thumbnailUrl = lines[1].takeIf { it.startsWith("http") }
+        val directUrl    = lines[2]
+
+        if (!directUrl.startsWith("http")) {
+            throw Exception("yt-dlp returned no direct URL. Output: $output")
+        }
+
+        return mapOf(
+            "directUrl"    to directUrl,
+            "title"        to title,
+            "thumbnailUrl" to thumbnailUrl,
+        )
+    }
+
+    private fun setupSocialVideoChannel(flutterEngine: FlutterEngine) {
+        val channel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SOCIAL_VIDEO_CHANNEL,
+        )
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getVideoUrl" -> {
+                    val url = call.argument<String>("url")
+                    if (url.isNullOrBlank()) {
+                        result.error("INVALID_ARG", "url is required", null)
+                        return@setMethodCallHandler
+                    }
+                    bgExecutor.execute {
+                        try {
+                            val info = extractSocialVideoUrl(url)
+                            runOnUiThread { result.success(info) }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.error(
+                                    "EXTRACTION_FAILED",
+                                    e.message ?: "yt-dlp extraction failed",
+                                    null,
+                                )
+                            }
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 }

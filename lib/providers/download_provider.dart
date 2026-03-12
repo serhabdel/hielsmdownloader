@@ -17,7 +17,6 @@ class DownloadProvider extends ChangeNotifier {
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, bool> _activeDownloads = {};
   SettingsProvider? _settingsProvider;
-  int _activeCount = 0;
   bool _historyLoaded = false;
 
   // Download speed tracking: downloadId → sliding window of recent samples
@@ -28,7 +27,7 @@ class DownloadProvider extends ChangeNotifier {
       _items.where((i) => i.status.isActive).toList();
   List<DownloadItem> get completedItems =>
       _items.where((i) => i.status == DownloadStatus.completed).toList();
-  int get activeCount => _activeCount;
+  int get activeCount => _activeDownloads.length;
 
   void init(SettingsProvider settings) {
     _settingsProvider = settings;
@@ -89,12 +88,11 @@ class DownloadProvider extends ChangeNotifier {
   void _processDownload(DownloadItem item) async {
     final maxConcurrent = _settingsProvider?.concurrentDownloads ?? 2;
 
-    if (_activeCount >= maxConcurrent) {
+    if (_activeDownloads.length >= maxConcurrent) {
       _updateItem(item.id, item.copyWith(status: DownloadStatus.queued));
       return;
     }
 
-    _activeCount++;
     _activeDownloads[item.id] = true;
     _startDownload(item);
   }
@@ -182,9 +180,8 @@ class DownloadProvider extends ChangeNotifier {
       _lastNotificationUpdateById.remove(item.id);
       _lastUiUpdateById.remove(item.id);
       _speedTrackers.remove(item.id);
-      _activeCount = (_activeCount - 1).clamp(0, 999);
       _processQueuedItems();
-      if (_activeCount == 0) {
+      if (_activeDownloads.isEmpty) {
         await ForegroundService.stop();
       }
     }
@@ -485,14 +482,13 @@ class DownloadProvider extends ChangeNotifier {
 
   void _processQueuedItems() {
     final maxConcurrent = _settingsProvider?.concurrentDownloads ?? 2;
-    if (_activeCount >= maxConcurrent) return;
+    if (_activeDownloads.length >= maxConcurrent) return;
 
     final queued =
         _items.where((i) => i.status == DownloadStatus.queued).toList();
     if (queued.isEmpty) return;
 
     final next = queued.last; // last = earliest added (items are prepended)
-    _activeCount++;
     _activeDownloads[next.id] = true;
     _startDownload(next);
   }

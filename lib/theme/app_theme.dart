@@ -120,15 +120,3 @@ class AppTheme {
       );
 }
 
-// Platform logo colors / branding
-class PlatformColors {
-  static const youtube = Color(0xFFFF0000);
-  static const instagram = Color(0xFFE1306C);
-  static const tiktok = Color(0xFF69C9D0);
-  static const twitter = Color(0xFF1DA1F2);
-  static const facebook = Color(0xFF1877F2);
-  static const reddit = Color(0xFFFF4500);
-  static const pinterest = Color(0xFFE60023);
-  static const vimeo = Color(0xFF1AB7EA);
-  static const generic = Color(0xFF6C63FF);
-}

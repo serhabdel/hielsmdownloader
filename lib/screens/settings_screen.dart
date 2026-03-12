@@ -1,11 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../models/download_item.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/platform_icon.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = '${info.version}+${info.buildNumber}');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +102,9 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.info_outline_rounded,
                 iconColor: Colors.white38,
                 title: 'Version',
-                subtitle: '1.0.5 — Built for personal use, no ads, no BS.',
+                subtitle: _version.isEmpty
+                    ? 'Loading...'
+                    : '$_version — Built for personal use, no ads, no BS.',
               ),
               const SizedBox(height: 10),
 
@@ -120,45 +139,31 @@ class SettingsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _platformRow(
-                      Icons.play_circle_filled,
-                      const Color(0xFFFF0000),
-                      'YouTube',
+                      SupportedPlatform.youtube,
                       'Videos, Shorts — no API key, direct extraction',
                     ),
                     _platformRow(
-                      Icons.camera_alt,
-                      const Color(0xFFE1306C),
-                      'Instagram',
+                      SupportedPlatform.instagram,
                       'Reels, posts — via direct_link',
                     ),
                     _platformRow(
-                      Icons.music_note,
-                      const Color(0xFF69C9D0),
-                      'TikTok',
+                      SupportedPlatform.tiktok,
                       'Videos — via direct_link',
                     ),
                     _platformRow(
-                      Icons.flutter_dash,
-                      const Color(0xFF1DA1F2),
-                      'Twitter/X',
-                      'Video tweets — via direct_link',
+                      SupportedPlatform.twitter,
+                      'Video tweets — native extraction',
                     ),
                     _platformRow(
-                      Icons.facebook,
-                      const Color(0xFF1877F2),
-                      'Facebook',
+                      SupportedPlatform.facebook,
                       'Videos — via direct_link',
                     ),
                     _platformRow(
-                      Icons.reddit,
-                      const Color(0xFFFF4500),
-                      'Reddit',
+                      SupportedPlatform.reddit,
                       'Video posts — via direct_link',
                     ),
                     _platformRow(
-                      Icons.videocam,
-                      const Color(0xFF1AB7EA),
-                      'Vimeo',
+                      SupportedPlatform.vimeo,
                       'Videos — via direct_link',
                       last: true,
                     ),
@@ -185,9 +190,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Widget _platformRow(
-    IconData icon,
-    Color color,
-    String name,
+    SupportedPlatform platform,
     String desc, {
     bool last = false,
   }) {
@@ -201,10 +204,12 @@ class SettingsScreen extends StatelessWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
+                  color: platform.color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: color, size: 16),
+                child: Center(
+                  child: PlatformIcon(platform: platform, size: 16),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -212,7 +217,7 @@ class SettingsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name,
+                      platform.displayName,
                       style: const TextStyle(
                         color: AppTheme.onBackground,
                         fontSize: 13,

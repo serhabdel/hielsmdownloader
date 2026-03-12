@@ -9,6 +9,7 @@ import '../providers/settings_provider.dart';
 import '../services/download_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/platform_badge.dart';
+import '../widgets/platform_icon.dart';
 import 'downloads_screen.dart';
 import 'settings_screen.dart';
 
@@ -330,10 +331,9 @@ class _HomeScreenState extends State<HomeScreen>
               prefixIcon: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 child: _urlValid
-                    ? Icon(
-                        _detectedPlatform.icon,
+                    ? PlatformIcon(
+                        platform: _detectedPlatform,
                         key: ValueKey(_detectedPlatform),
-                        color: _detectedPlatform.color,
                         size: 20,
                       )
                     : const Icon(
@@ -755,7 +755,7 @@ class _DownloadOptionsSheetState extends State<_DownloadOptionsSheet> {
                   color: _platform.color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(_platform.icon, color: _platform.color, size: 20),
+                child: PlatformIcon(platform: _platform, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
