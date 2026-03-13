@@ -49,3 +49,5 @@ app.*.map.json
 /android/app/*.jks
 /android/app/*.keystore
 .bg-shell/
+android/hielsmd-release.jks
+android/key.properties
