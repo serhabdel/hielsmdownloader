@@ -33,13 +33,8 @@ jobs:
 
       - name: Decode release keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/hielsmd-release.jks
-          cat > android/key.properties <<EOF
-          storePassword=${{ secrets.STORE_PASSWORD }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=hielsmd-release.jks
-          EOF
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/hielsmd-release.jks
+          printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=hielsmd-release.jks\n' > android/key.properties
 
       - name: Build universal APK
         run: flutter build apk --release

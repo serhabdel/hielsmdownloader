@@ -51,3 +51,4 @@ app.*.map.json
 .bg-shell/
 android/hielsmd-release.jks
 android/key.properties
+android/app/hielsmd-release.jks
